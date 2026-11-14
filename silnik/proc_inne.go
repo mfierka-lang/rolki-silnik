@@ -14,6 +14,11 @@ import (
 
 func ukryjOkno(cmd *exec.Cmd) {}
 
+// zastapProces: bieżący proces staje się podanym programem (ten sam numer procesu, otwarte połączenia się zamykają).
+func zastapProces(program string, arg, srodowisko []string) error {
+	return syscall.Exec(program, arg, srodowisko)
+}
+
 var kofeina *exec.Cmd
 
 // nieUsypiaj: macOS ma do tego program caffeinate; trzyma komputer przytomnym, dopóki żyje proces o podanym numerze.

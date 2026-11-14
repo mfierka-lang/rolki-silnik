@@ -76,7 +76,7 @@ func przygotujUjecie(n *Narzedzia, k *Klip, o Okno, st *Styl, praca, nazwa strin
 }
 
 // zlozUjecia: łączy przygotowane ujęcia, nakłada nagłówek, wyrównuje dźwięk z planu i koduje gotowy plik.
-func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, przejsciaPo map[int]bool, maNapisy bool, wyjscie string) error {
+func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, przejsciaPo map[int]bool, muz *Utwor, maNapisy bool, wyjscie string) error {
 	var f strings.Builder
 	arg := []string{"-hide_banner", "-y", "-nostats", "-loglevel", "error"}
 	razem := 0.0
@@ -95,6 +95,14 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 		razem += d
 	}
 	razem = lancuchZlozenia(&f, ev, ea, czasy, przejsciaPo)
+	zrodloDzwieku := "[ac]"
+	if muz != nil {
+		// muzyka od miejsca, w którym gra pełnią; dźwięk z planu zostaje słyszalny, na końcu wyciszenie
+		arg = append(arg, "-ss", liczba(muz.Start), "-i", muz.Plik)
+		fmt.Fprintf(&f, "[%d:a]aresample=48000,aformat=channel_layouts=stereo,volume=%s,afade=t=in:st=0:d=0.2,afade=t=out:st=%s:d=0.9[mu];\n[ac]volume=0.7[nat];\n[nat][mu]amix=inputs=2:normalize=0:duration=first[mx];\n",
+			len(pliki), liczba(wzmocnienieMuzyki(muz, -19)), liczba(math.Max(0, razem-0.9)))
+		zrodloDzwieku = "[mx]"
+	}
 	if maNapisy {
 		f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty[v];\n")
 	} else {
@@ -102,7 +110,7 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 	}
 	// dźwięk z planu zostaje (nigdy cisza). Dopóki nie ma muzyki, jest całą ścieżką, więc dostaje pełną głośność;
 	// gdy dojdzie muzyka z biblioteki, zejdzie o kilka dB i będzie tłem.
-	fmt.Fprintf(&f, "[ac]highpass=f=70,loudnorm=I=%s:TP=-2:LRA=9,aresample=48000,alimiter=limit=0.89:level=0[a]\n", liczba(st.Dzwiek.GlosnoscLUFS))
+	fmt.Fprintf(&f, "%shighpass=f=45,loudnorm=I=%s:TP=-3:LRA=9,aresample=48000,alimiter=limit=0.8:level=0[a]\n", zrodloDzwieku, liczba(st.Dzwiek.GlosnoscLUFS))
 	if err := os.WriteFile(filepath.Join(praca, "filtr.txt"), []byte(f.String()), 0o644); err != nil {
 		return err
 	}
@@ -135,6 +143,8 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	progOceny := fs.Float64("ocena", 1.2, "najgorsza ocena ujęcia, które jeszcze może wejść do rolki")
 	przejscia := fs.Bool("przejscia", false, "przejścia na granicach części filmu (odsłonięcie od dołu z linią dyszy)")
 	najazdWyl := fs.Bool("bez-najazdu", false, "bez powolnego najazdu na nieruchomych ujęciach")
+	muzykaFlaga := fs.String("muzyka", "", "muzyka: auto (z biblioteki) albo plik; puste = bez muzyki")
+	nastroj := fs.String("nastroj", "", "nastrój muzyki: dynamiczny, spokojny albo pusty")
 	pomin := fs.Int("pomin", 0, "ile ujęć z początku pominąć (uwaga: skróć początek)")
 	zRozumem := fs.Bool("rozum", false, "opisz ujęcia modelem (kolejność: plan ogólny na początek, spokojny widok na koniec; hasła z szablonu)")
 	fs.Parse(arg)
@@ -272,6 +282,27 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		tRozum = time.Since(tr).Seconds()
 	}
 
+	// Muzyka: utwór z biblioteki dobrany do nastroju albo stylu. Gdy ma wyraźny rytm, cięcia wypadają co pełne
+	// takty (2, 4 albo 8 uderzeń: to, co najbliżej zadanej długości ujęcia), a liczba ujęć wynika z tego kroku.
+	var utwor *Utwor
+	if *muzykaFlaga != "" {
+		komunikat("muzyka", 0.74, "Dobieram muzykę i liczę jej rytm")
+		if *muzykaFlaga == "auto" {
+			utwor = wybierzUtwor(n, *nastroj, filepath.Base(pracaAbs), *dlugosc*1.1+4, nil)
+		} else {
+			utwor, _ = analizujUtwor(n, *muzykaFlaga)
+		}
+		if utwor != nil && utwor.Pewnosc >= 0.15 && utwor.Okres > 0.2 {
+			naj := 0.0
+			for _, k := range []float64{2, 4, 8} {
+				if naj == 0 || math.Abs(k*utwor.Okres-*ujecie) < math.Abs(naj-*ujecie) {
+					naj = k * utwor.Okres
+				}
+			}
+			*ujecie = naj
+		}
+	}
+
 	// 3. wybór: najspokojniejsze okna, tyle, ile mieści się w docelowej długości, w kolejności nagrań
 	prog := *progDrgan
 	if prog <= 0 {
@@ -363,10 +394,22 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	for i := 0; i < *pomin && len(wybrane) > 3; i++ {
 		wybrane = wybrane[1:]
 	}
+	przejsciaPo := map[int]bool{}
+	if *przejscia {
+		przejsciaPo = przejsciaDlaUjec(len(wybrane), *dlugosc > 60)
+	}
 	kl := float64(st.Klatki)
+	granica := func(i int) float64 { return math.Round(float64(i)**ujecie*kl) / kl } // cięcia na wspólnej siatce, bez sumowania zaokrągleń
 	for i := range wybrane {
+		dl := granica(i+1) - granica(i)
+		if przejsciaPo[i] && i < len(wybrane)-1 {
+			dl += czasPrzejscia // przejście zjada tyle z ujęcia, a cięcie ma zostać na uderzeniu
+		}
 		wybrane[i].Od = math.Round(wybrane[i].Od*kl) / kl
-		wybrane[i].Do = wybrane[i].Od + math.Round(*ujecie*kl)/kl
+		if nadmiar := wybrane[i].Od + dl - (klipy[wybrane[i].Klip].Czas - 0.1); nadmiar > 0 {
+			wybrane[i].Od = math.Max(0, math.Round((wybrane[i].Od-nadmiar)*kl)/kl)
+		}
+		wybrane[i].Do = wybrane[i].Od + dl
 	}
 	// chwila oddechu przed końcem: ostatnie ujęcie (efekt, wezwanie) trwa o 0,6 s dłużej, gdy nagranie na to pozwala
 	if ost := len(wybrane) - 1; ost >= 2 && wybrane[ost].Do+0.6 < klipy[wybrane[ost].Klip].Czas-0.2 {
@@ -399,10 +442,6 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	tUj := time.Since(t1).Seconds()
 
 	// przejścia skracają oś czasu (dwa ujęcia nakładają się na chwilę): napisy liczone są na osi po przejściach
-	przejsciaPo := map[int]bool{}
-	if *przejscia {
-		przejsciaPo = przejsciaDlaUjec(len(wybrane), *dlugosc > 60)
-	}
 	czasyEf := append([]float64(nil), czasy...)
 	var chwilePrzejsc []float64
 	naOsi := 0.0
@@ -454,7 +493,7 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		teksty = append(teksty, strings.ReplaceAll(h.Tekst, "*", ""))
 	}
 	rap, _ := json.MarshalIndent(map[string]any{"ujecia": wybrane, "hasla": teksty, "naglowek": linieHaka, "rozum": nazwaRozumu,
-		"czas": float64(len(wybrane)) * *ujecie, "nagran": len(klipy), "material": sumaNagran}, "", " ")
+		"czas": naOsi, "nagran": len(klipy), "material": sumaNagran, "muzyka": utwor}, "", " ")
 	os.WriteFile(filepath.Join(pracaAbs, "ujecia.json"), rap, 0o644)
 	if len(linieHaka) > 0 || len(hasla) > 0 || len(chwilePrzejsc) > 0 {
 		fonty, err := zapiszNapisyUjec(filepath.Join(pracaAbs, "napisy.ass"), linieHaka, czasyEf[0], hasla, chwilePrzejsc, st)
@@ -470,12 +509,12 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	enk := wybierzEnkoder(n)
 	komunikat("render", 0.92, "Składam rolkę ("+enk.Nazwa+")")
 	wy, _ := filepath.Abs(*wyjscie)
-	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, maNapisy, wy); err != nil {
+	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, wy); err != nil {
 		if enk.Nazwa == "libx264" {
 			blad(err)
 		}
 		kand := kandydaciEnkoderow()
-		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, maNapisy, wy); err != nil {
+		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, wy); err != nil {
 			blad(err)
 		}
 	}

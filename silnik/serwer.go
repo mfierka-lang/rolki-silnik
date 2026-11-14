@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -23,6 +24,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +36,8 @@ var plikiInterfejsu embed.FS
 //go:embed szablon
 var szablonWbudowany embed.FS
 
-const portSilnika = 47615
+// portSilnika: stały adres, pod którym strona szuka silnika. Zmienna ZM_PORT zmienia go tylko na potrzeby testów.
+var portSilnika = 47615
 
 // panelWbudowany: adresy panelu, z których strona może sterować silnikiem (poza własnym oknem silnika), oddzielone
 // przecinkami. Puste w kodzie źródłowym; wydanie dostaje je przy budowie: -ldflags "-X main.panelWbudowany=https://...".
@@ -78,15 +81,17 @@ type stanPrzygotowania struct {
 }
 
 type Serwer struct {
-	mu        sync.Mutex
-	dane      string
-	styl      string
-	pliki     map[string]*plikWejsciowy
-	zlecenie  *stanZlecenia
-	ostatnio  time.Time
-	przyg     stanPrzygotowania
-	sprzet    Sprzet
-	dodatkowe []string // dodatkowe dozwolone adresy panelu (flaga --panel, do testów)
+	mu          sync.Mutex
+	dane        string
+	styl        string
+	pliki       map[string]*plikWejsciowy
+	zlecenie    *stanZlecenia
+	ostatnio    time.Time
+	przyg       stanPrzygotowania
+	sprzet      Sprzet
+	dodatkowe   []string // dodatkowe dozwolone adresy panelu (flaga --panel, do testów)
+	synchro     stanSynchro
+	argRestartu []string // polecenie, którym nowa wersja silnika ma wystartować w miejsce tej
 }
 
 func losowe(n int) string {
@@ -213,9 +218,13 @@ func (s *Serwer) stan(w http.ResponseWriter, r *http.Request) {
 	if m, _ := znajdzModelLLM(s.dane, "tekst"); m != "" {
 		modele = "z modelem"
 	}
+	var style []map[string]any
+	if n, _ := znajdzNarzedzia(s.dane); n != nil {
+		style = styleMuzyki(n)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	odp := map[string]any{"ok": true, "wersja": wersja, "system": runtime.GOOS, "gotowy": !wymagane, "komplet": len(brak) == 0, "brak": nazwy, "modele": modele, "przygotowanie": s.przyg, "sprzet": s.sprzet}
+	odp := map[string]any{"ok": true, "muzyka": style, "wersja": wersja, "system": runtime.GOOS, "gotowy": !wymagane, "komplet": len(brak) == 0, "brak": nazwy, "modele": modele, "przygotowanie": s.przyg, "sprzet": s.sprzet, "synchro": s.synchro}
 	if z := s.zlecenie; z != nil {
 		odp["zadanie"] = map[string]any{"id": z.ID, "stan": z.Stan, "sekundy": time.Since(z.Start).Seconds(), "wynik": z.Wynik}
 	}
@@ -298,6 +307,7 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 		Napisy     *bool    `json:"napisy"`
 		Przejscia  *bool    `json:"przejscia"`
 		Animacje   *bool    `json:"animacje"`
+		Muzyka     string   `json:"muzyka"` // "", "dynamiczny", "spokojny", "styl:Nazwa", "brak"
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&we); err != nil {
 		odpowiedzBlad(w, 400, "nieczytelne zlecenie")
@@ -311,13 +321,17 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 	}
 	wylaczone := func(v *bool) bool { return v != nil && !*v }
 	z := &Zadanie{Opis: strings.TrimSpace(we.Opis), Styl: s.styl, Dane: s.dane, Format: we.Format, Dlugosc: we.Dlugosc,
-		BezNapisow: wylaczone(we.Napisy), BezPrzejsc: wylaczone(we.Przejscia), BezAnimacji: wylaczone(we.Animacje)}
+		BezNapisow: wylaczone(we.Napisy), BezPrzejsc: wylaczone(we.Przejscia), BezAnimacji: wylaczone(we.Animacje), BezMuzyki: we.Muzyka == "brak"}
+	if we.Muzyka != "brak" {
+		z.Muzyka = we.Muzyka
+	}
 	if we.Poprzednie != "" { // poprawka: te same nagrania i opis, do tego kolejna uwaga
 		if b, err := os.ReadFile(filepath.Join(s.dane, "zlecenia", filepath.Base(we.Poprzednie), "zadanie.json")); err == nil {
 			var stare Zadanie
 			if json.Unmarshal(b, &stare) == nil {
 				z.Pliki, z.Opis, z.Popraw = stare.Pliki, stare.Opis, stare.Popraw
 				z.Format, z.Dlugosc, z.BezNapisow, z.BezPrzejsc, z.BezAnimacji = stare.Format, stare.Dlugosc, stare.BezNapisow, stare.BezPrzejsc, stare.BezAnimacji
+				z.BezMuzyki, z.Muzyka = stare.BezMuzyki, stare.Muzyka
 			}
 		}
 		if t := strings.TrimSpace(we.Popraw); t != "" {
@@ -388,7 +402,7 @@ func (s *Serwer) startZlecenia(z *Zadanie) (string, error) {
 			}
 			if json.Unmarshal(sk.Bytes(), &k) == nil && k.Tekst != "" {
 				s.mu.Lock()
-				zl.Postep, zl.Tekst = k.Postep, k.Tekst
+				zl.Postep, zl.Tekst = math.Max(zl.Postep, k.Postep), k.Tekst
 				s.mu.Unlock()
 			}
 		}
@@ -540,6 +554,9 @@ func polecenieSerwer(arg []string) {
 	okno := fs2.Bool("okno", true, "otwórz interfejs w przeglądarce")
 	panel := fs2.String("panel", "", "dodatkowy dozwolony adres panelu (do testów), np. http://localhost:8789")
 	fs2.Parse(arg)
+	if przekazNowszej(katalogDanych(*dane), append([]string{"serwer"}, arg...)) {
+		return
+	}
 	uruchomSerwer(katalogDanych(*dane), *stylPlik, *okno, *panel)
 }
 
@@ -548,8 +565,16 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 		dane = abs
 	}
 	os.MkdirAll(dane, 0o755)
+	if p, err := strconv.Atoi(os.Getenv("ZM_PORT")); err == nil && p > 1024 && p < 65536 {
+		portSilnika = p
+	}
 	adres := fmt.Sprintf("127.0.0.1:%d", portSilnika)
 	l, err := net.Listen("tcp", adres)
+	// nowa wersja uruchomiona przez starą: port zwalnia się, gdy stara kończy pracę
+	for proba := 0; err != nil && os.Getenv("ZM_PRZEKAZANO") != "" && proba < 40; proba++ {
+		time.Sleep(250 * time.Millisecond)
+		l, err = net.Listen("tcp", adres)
+	}
 	if err != nil {
 		// silnik już działa (np. drugi klik w skrót): pokazujemy jego okno i kończymy
 		if okno {
@@ -557,6 +582,7 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 		}
 		return
 	}
+	stylFlaga := styl
 	if styl == "" {
 		styl = zapewnijSzablon(dane)
 	} else if abs, err := filepath.Abs(styl); err == nil {
@@ -564,9 +590,15 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 	}
 	s := &Serwer{dane: dane, styl: styl, pliki: map[string]*plikWejsciowy{}, ostatnio: time.Now()}
 	s.sprzet = odczytajSprzet(dane)
+	s.argRestartu = []string{"serwer", "--okno=false", "--dane", dane}
+	if stylFlaga != "" {
+		s.argRestartu = append(s.argRestartu, "--styl", styl)
+	}
 	if panel != "" {
 		s.dodatkowe = strings.Split(panel, ",")
+		s.argRestartu = append(s.argRestartu, "--panel", panel)
 	}
+	utrwalNowaWersje(dane)
 	mux := http.NewServeMux()
 	tylko := func(metoda string, h http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -587,6 +619,7 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 	mux.HandleFunc("/api/pokaz", tylko("POST", s.pokaz))
 	mux.HandleFunc("/api/nowa", tylko("POST", s.nowa))
 	mux.HandleFunc("/api/przygotuj", tylko("POST", s.przygotuj))
+	mux.HandleFunc("/api/synchronizuj", tylko("POST", s.synchronizuj))
 	mux.HandleFunc("/api/zamknij", tylko("POST", func(w http.ResponseWriter, r *http.Request) {
 		odpowiedzJSON(w, 200, map[string]bool{"ok": true})
 		go func() { time.Sleep(300 * time.Millisecond); os.Exit(0) }()
@@ -602,7 +635,7 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 	go func() {
 		for range time.Tick(30 * time.Second) {
 			s.mu.Lock()
-			zajety := (s.zlecenie != nil && s.zlecenie.Stan == "praca") || s.przyg.Trwa
+			zajety := (s.zlecenie != nil && s.zlecenie.Stan == "praca") || s.przyg.Trwa || s.synchro.Trwa
 			cisza := time.Since(s.ostatnio)
 			s.mu.Unlock()
 			if !zajety && cisza > 15*time.Minute {

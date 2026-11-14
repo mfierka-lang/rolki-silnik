@@ -52,10 +52,17 @@
   }
 
   // ---------- wykrywanie silnika ----------
-  var proby = 0, pominiete = false, sprzetWyslany = false;
+  var proby = 0, pominiete = false, sprzetWyslany = false, polaczony = false, synchroWyslane = false, wersjaSilnika = "";
   function sprawdz() {
     return wolaj("/api/stan").then(function (s) {
       proby = 0;
+      polaczony = true;
+      ustawStyleMuzyki(s.muzyka || []);
+      rysujSynchro(s.synchro);
+      // po przełączeniu silnika na nową wersję synchronizacja idzie jeszcze raz (muzykę dociąga nowy silnik)
+      if (wersjaSilnika && wersjaSilnika !== s.wersja) synchroWyslane = false;
+      wersjaSilnika = s.wersja;
+      synchronizuj();
       // panel zapisuje przy koncie, na jakim komputerze działa silnik (pomoc techniczna); raz na otwarcie strony
       if (NA_STRONIE && s.sprzet && !sprzetWyslany) {
         sprzetWyslany = true;
@@ -84,6 +91,10 @@
       return s;
     }).catch(function () {
       proby++;
+      // jedna nieudana próba to za mało, żeby zmieniać ekran (silnik np. właśnie przełącza się na nową wersję)
+      if (polaczony && proby < 3) return null;
+      polaczony = false;
+      synchroWyslane = false;
       stanSilnika("brak", NA_STRONIE ? "Silnik nie działa" : "Brak połączenia");
       if (ekranTeraz === "" || ekranTeraz === "start" || ekranTeraz === "brak") {
         ustawBrak();
@@ -105,6 +116,44 @@
       : "Jeśli przeglądarka zapyta o dostęp do urządzeń w sieci lokalnej, zezwól: chodzi o program na tym komputerze.";
   }
   setInterval(function () { if (ekranTeraz !== "praca") sprawdz(); }, 4000);
+
+  // muzyka i nowe wersje silnika: strona (po zalogowaniu) bierze z panelu krótki żeton i przekazuje go silnikowi,
+  // który sam pobiera pliki z panelu. Raz na połączenie z silnikiem.
+  function synchronizuj() {
+    if (!NA_STRONIE || synchroWyslane) return;
+    synchroWyslane = true;
+    fetch("/zeton", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.zeton) return wolaj("/api/synchronizuj", { json: { zeton: j.zeton } });
+    }).catch(function () {});
+  }
+  function rysujSynchro(sy) {
+    var el = $("synchro-uwaga");
+    if (!el) return;
+    var tekst = "";
+    if (sy && sy.trwa) tekst = sy.tekst || "Sprawdzam nowości";
+    else if (sy && sy.blad) tekst = "Nie udało się pobrać nowości z panelu: " + sy.blad;
+    else if (sy && sy.nowa) tekst = "Nowa wersja silnika (" + sy.nowa + ") włączy się przy następnym uruchomieniu.";
+    el.textContent = tekst;
+    el.hidden = !tekst;
+  }
+
+  // lista stylów muzyki z biblioteki silnika (foldery); bez biblioteki zostaje tylko „Bez muzyki”
+  var styleZnak = "";
+  function ustawStyleMuzyki(style) {
+    var znak = JSON.stringify(style);
+    if (znak === styleZnak) return;
+    styleZnak = znak;
+    var sel = $("opcja-muzyka"), wybrany = sel.value;
+    sel.innerHTML = "";
+    var dodaj = function (v, t) { var o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+    if (style.length) {
+      dodaj("", "Automatycznie"); dodaj("dynamiczny", "Dynamiczna"); dodaj("spokojny", "Spokojna");
+      style.forEach(function (s) { dodaj("styl:" + s.styl, (s.nazwa || s.styl) + " (" + s.ile + ")"); });
+    }
+    dodaj("brak", "Bez muzyki");
+    sel.value = wybrany;
+    if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+  }
 
   // ---------- przygotowanie narzędzi ----------
   function rysujBraki(s) {
@@ -217,7 +266,7 @@
   $("montuj").addEventListener("click", function () {
     var wybrane = function (nazwa) { var e = document.querySelector('input[name="' + nazwa + '"]:checked'); return e ? e.value : ""; };
     montuj({ pliki: pliki.map(function (p) { return p.id; }), opis: $("opis").value.trim(), format: wybrane("format"), dlugosc: wybrane("dlugosc"),
-      napisy: $("opcja-napisy").checked, przejscia: $("opcja-przejscia").checked, animacje: $("opcja-animacje").checked });
+      napisy: $("opcja-napisy").checked, przejscia: $("opcja-przejscia").checked, animacje: $("opcja-animacje").checked, muzyka: $("opcja-muzyka").value });
   });
   function pilnuj() {
     clearInterval(zegar);

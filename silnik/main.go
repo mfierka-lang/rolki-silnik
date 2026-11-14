@@ -20,7 +20,8 @@ import (
 	"golang.org/x/image/font/sfnt"
 )
 
-const wersja = "0.3.0"
+// wersja: zmienna (nie stała), żeby testy mogły zbudować program udający nowszą wersję: -X main.wersja=...
+var wersja = "0.5.0"
 
 // komunikat: postęp jako wiersze JSON (czytane później przez stronę), a dla człowieka czytelny tekst na stderr.
 // zakresPostepu: gdy montaż jest częścią większego zlecenia, jego postęp 0-1 trafia w wycinek paska całości.
@@ -61,6 +62,8 @@ func main() {
 		polecenieSerwer(os.Args[2:])
 	case "instaluj":
 		polecenieInstaluj(os.Args[2:])
+	case "muzyka":
+		polecenieMuzyka(os.Args[2:])
 	case "rodzaj":
 		polecenieRodzajCLI(os.Args[2:])
 	case "font":
@@ -104,6 +107,7 @@ func poleceniaMontuj(arg []string) {
 	opis := fs.String("opis", "", "opis rolki od użytkownika")
 	hak := fs.String("hak", "", "nagłówek na początek: \"Linia 1|Linia 2\"")
 	bezNapisow := fs.Bool("bez-napisow", false, "rolka bez napisów mowy")
+	muzykaOd := fs.Float64("muzyka-od", 0, "od której sekundy utworu zacząć")
 	maks := fs.Float64("maks", 0, "największa długość filmu w sekundach (0 = bez limitu)")
 	fs.Parse(arg)
 	pliki := fs.Args()
@@ -226,7 +230,7 @@ func poleceniaMontuj(arg []string) {
 	if *muzyka != "" {
 		muz, _ = filepath.Abs(*muzyka)
 	}
-	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, Wyjscie: wy, Praca: pracaAbs}
+	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, MuzykaOd: *muzykaOd, Wyjscie: wy, Praca: pracaAbs}
 	ostatni := 0.0
 	err = renderuj(n, enk, z, func(p float64) {
 		if p-ostatni >= 0.1 {

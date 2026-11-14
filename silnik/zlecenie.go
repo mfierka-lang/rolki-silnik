@@ -32,12 +32,15 @@ type Zadanie struct {
 	BezNapisow  bool   `json:"bezNapisow"`
 	BezPrzejsc  bool   `json:"bezPrzejsc"`
 	BezAnimacji bool   `json:"bezAnimacji"`
+	BezMuzyki   bool   `json:"bezMuzyki"`
+	Muzyka      string `json:"muzyka"` // "" = automatycznie, "dynamiczny", "spokojny" albo "styl:Nazwa"
 }
 
 type Wynik struct {
 	Plik     string   `json:"plik"`
 	Rodzaj   string   `json:"rodzaj"` // mowa | ujecia
 	Format   string   `json:"format"` // pion | poziom
+	Muzyka   string   `json:"muzyka"` // tytuł użytego utworu
 	Czas     float64  `json:"czas"`   // długość rolki w sekundach
 	Trwalo   float64  `json:"trwalo"` // ile trwał montaż
 	Temat    string   `json:"temat"`
@@ -57,6 +60,7 @@ type Ustawienia struct {
 	SkalaNapisu float64
 	BezNapisow  bool
 	BezNaglowka bool
+	BezMuzyki   bool
 	Naglowek    []string
 	Pomin       int // ile ujęć z początku pominąć („skróć początek”)
 	Notatki     []string
@@ -127,6 +131,10 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 		if ma(" bez napisow", " usun napisy", " wylacz napisy") {
 			u.BezNapisow = true
 			u.Notatki = append(u.Notatki, "Bez napisów.")
+		}
+		if ma(" bez muzyki", " wylacz muzyke", " usun muzyke", " bez podkladu") {
+			u.BezMuzyki = true
+			u.Notatki = append(u.Notatki, "Bez muzyki.")
 		}
 		if ma(" bez naglowka", " usun naglowek", " bez tytulu", " usun tytul") {
 			u.BezNaglowka = true
@@ -365,6 +373,18 @@ func polecenieWykonaj(arg []string) {
 		ust.BezNapisow = true
 	}
 	dlugi := z.Dlugosc == "dlugi"
+	// muzyka: gdy w bibliotece są utwory i nikt jej nie wyłączył; nastrój wynika z tempa podanego w opisie
+	zMuzyka := !z.BezMuzyki && !ust.BezMuzyki && len(bibliotekaMuzyki(n)) > 0
+	nastroj := ""
+	switch ust.Ujecie {
+	case 1.8:
+		nastroj = "dynamiczny"
+	case 3.0:
+		nastroj = "spokojny"
+	}
+	if z.Muzyka != "" { // wybór na stronie ma pierwszeństwo przed tempem z opisu
+		nastroj = z.Muzyka
+	}
 	if dlugi && ust.Dlugosc == 24 { // dłuższy film z ujęć: do 2 minut, spokojniejsze ujęcia
 		ust.Dlugosc = 120
 		if ust.Ujecie == 2.4 {
@@ -469,6 +489,13 @@ func polecenieWykonaj(arg []string) {
 		if !dlugi {
 			a = append(a, "--maks", "60")
 		}
+		if zMuzyka {
+			komunikat("muzyka", 0.41, "Dobieram muzykę")
+			if u := wybierzUtwor(n, nastroj, filepath.Base(z.Praca), 40, nil); u != nil {
+				a = append(a, "--muzyka", u.Plik, "--muzyka-od", liczba(u.Start))
+				w.Muzyka = u.Nazwa
+			}
+		}
 		for _, i := range mowione {
 			a = append(a, klipy[i].Plik)
 		}
@@ -499,6 +526,9 @@ func polecenieWykonaj(arg []string) {
 		if !z.BezPrzejsc {
 			a = append(a, "--przejscia")
 		}
+		if zMuzyka {
+			a = append(a, "--muzyka", "auto", "--nastroj", nastroj)
+		}
 		if z.BezAnimacji {
 			a = append(a, "--bez-najazdu")
 		}
@@ -511,12 +541,16 @@ func polecenieWykonaj(arg []string) {
 			Hasla  []string `json:"hasla"`
 			Czas   float64  `json:"czas"`
 			Nagran int      `json:"nagran"`
+			Muzyka *Utwor   `json:"muzyka"`
 		}
 		if b, err := os.ReadFile(filepath.Join(z.Praca, "ujecia.json")); err == nil {
 			json.Unmarshal(b, &u)
 		}
 		w.Czas, w.Hasla = u.Czas, u.Hasla
 		w.Raport = append(w.Raport, fmt.Sprintf("Wybrane ujęcia: %d z %d nagrań.", len(u.Ujecia), u.Nagran))
+		if u.Muzyka != nil {
+			w.Muzyka = u.Muzyka.Nazwa
+		}
 		var kol []string
 		for i, o := range u.Ujecia {
 			if o.Opis != nil && i < 12 {
@@ -526,6 +560,9 @@ func polecenieWykonaj(arg []string) {
 		if len(kol) > 0 {
 			w.Raport = append(w.Raport, "Co widać na kolejnych ujęciach: "+strings.Join(kol, " "))
 		}
+	}
+	if w.Muzyka != "" {
+		w.Raport = append(w.Raport, "Muzyka: "+w.Muzyka+".")
 	}
 	w.Trwalo = time.Since(t0).Seconds()
 	b, _ := json.MarshalIndent(w, "", " ")

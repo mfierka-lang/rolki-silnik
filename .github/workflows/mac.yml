@@ -42,6 +42,11 @@ jobs:
           "$DANE/montaz" wersja
           codesign -dv "$DANE/montaz" 2>&1 | grep -E "Signature|flags" || true
 
+      - name: Synchronizacja z panelem i samoaktualizacja (udawany panel, klucz testowy)
+        run: |
+          cd silnik
+          node test-synchro.mjs
+
       - name: Instalator (silnik sam pobiera narzędzia i modele)
         run: |
           # ffmpeg z systemu nie może pomagać: sprawdzamy to, co pobiera instalator

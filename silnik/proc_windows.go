@@ -10,6 +10,11 @@ import (
 	"unsafe"
 )
 
+// zastapProces: w Windows nie ma zastępowania procesu; nową wersję uruchamia się jako osobny proces.
+func zastapProces(program string, arg, srodowisko []string) error {
+	return fmt.Errorf("niedostępne w Windows")
+}
+
 // ukryjOkno: programy pomocnicze (ffmpeg, whisper) nie otwierają okna konsoli.
 func ukryjOkno(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW

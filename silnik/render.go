@@ -16,13 +16,14 @@ import (
 )
 
 type Zlecenie struct {
-	Klipy   []*Klip
-	Plan    *PlanMowy
-	Styl    *Styl
-	Fonty   []string // pliki fontów do skopiowania do katalogu pracy
-	Muzyka  string   // opcjonalnie
-	Wyjscie string
-	Praca   string // katalog roboczy: napisy.ass, fonty/, filtr.txt
+	Klipy    []*Klip
+	Plan     *PlanMowy
+	Styl     *Styl
+	Fonty    []string // pliki fontów do skopiowania do katalogu pracy
+	Muzyka   string   // opcjonalnie
+	MuzykaOd float64  // od której sekundy utworu zacząć (po cichym wstępie)
+	Wyjscie  string
+	Praca    string // katalog roboczy: napisy.ass, fonty/, filtr.txt
 }
 
 func liczba(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
@@ -149,7 +150,7 @@ func renderuj(n *Narzedzia, enk Enkoder, z *Zlecenie, postep func(float64)) erro
 		arg = append(arg, "-i", w)
 	}
 	if z.Muzyka != "" {
-		arg = append(arg, "-stream_loop", "-1", "-i", z.Muzyka)
+		arg = append(arg, "-ss", liczba(z.MuzykaOd), "-stream_loop", "-1", "-i", z.Muzyka)
 	}
 	arg = append(arg, "-/filter_complex", "filtr.txt", "-map", "[v]", "-map", "[a]", "-r", fmt.Sprint(z.Styl.Klatki))
 	arg = append(arg, enk.Arg...)

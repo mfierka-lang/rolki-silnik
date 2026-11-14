@@ -27,6 +27,14 @@ func uruchomZKlikniecia(adres string) {
 			okno = false // strona, z której kliknięto, sama jest interfejsem
 		}
 	}
+	// w katalogu danych może czekać nowsza wersja silnika pobrana z panelu: wtedy pracuje ona
+	argNowej := []string{"serwer"}
+	if !okno {
+		argNowej = append(argNowej, "--okno=false")
+	}
+	if przekazNowszej(dane, argNowej) {
+		return
+	}
 	if runtime.GOOS == "windows" {
 		if cel, przeniesiony := zainstalujSie(dane); przeniesiony {
 			// dalej pracuje kopia z katalogu danych, żeby pobrany plik można było skasować
@@ -100,7 +108,7 @@ func polecenieInstaluj(arg []string) {
 // paczkaMac: aplikacja macOS (katalog .app spakowany do zip) zbudowana na dowolnym systemie.
 // Program w paczce musi zachować prawo uruchamiania, dlatego zip powstaje tutaj, a nie zwykłym archiwizatorem.
 func paczkaMac(program, wyjscie string) error {
-	const plist = `<?xml version="1.0" encoding="UTF-8"?>
+	plist := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>Zblizka Montaz</string>
