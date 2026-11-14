@@ -193,8 +193,8 @@ func przygotujZaOsoba(n *Narzedzia, st *Styl, praca string, argWejscia []string,
 
 // filtr: fragment grafu ffmpeg. Wejście [vc] (cały film przed napisami), wyjście [vz]. Początek filmu dostaje
 // nagłówek, a na wierzch wraca wycięta maską osoba; reszta filmu przechodzi bez zmian.
-func (z *ZaOsoba) filtr(st *Styl, wejscieMaski int) string {
-	return fmt.Sprintf("[vc]split=2[zh][zt];\n"+
+func (z *ZaOsoba) filtr(st *Styl, wejscieMaski int, obraz string) string {
+	return fmt.Sprintf(obraz+"split=2[zh][zt];\n"+
 		"[zh]trim=end_frame=%d,setpts=PTS-STARTPTS,split=2[zh1][zh2];\n"+
 		"[zt]trim=start_frame=%d,setpts=PTS-STARTPTS,format=yuv420p,setsar=1[zt1];\n"+
 		"[zh1]ass=naglowek-za.ass:fontsdir=fonty[zh3];\n"+

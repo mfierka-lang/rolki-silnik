@@ -148,7 +148,7 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 		}
 		if ma(" poczat") && ma(" skroc", " krotsz", " utnij", " wytnij", " bez poczat", " pomin") {
 			u.Pomin++
-			u.Notatki = append(u.Notatki, "Początek skrócony o jedno ujęcie.")
+			u.Notatki = append(u.Notatki, "Początek skrócony (o jedno ujęcie albo jedno zdanie).")
 		}
 		if ma(" wieksze napisy", " napisy wieksze", " powieksz napisy", " wiekszy napis", " za male napisy") {
 			u.SkalaNapisu *= 1.15
@@ -570,7 +570,7 @@ func polecenieWykonaj(arg []string) {
 	zakresPostepu = [2]float64{0.42, 0.98}
 	if len(mowione) > 0 {
 		w.Rodzaj = "mowa"
-		a := []string{"--styl", stylPlik, "--dane", dane, "--praca", z.Praca, "--wyjscie", z.Wyjscie, "--hak", hak}
+		a := []string{"--styl", stylPlik, "--dane", dane, "--praca", z.Praca, "--wyjscie", z.Wyjscie, "--hak", hak, "--pomin", fmt.Sprint(ust.Pomin)}
 		if ust.BezNapisow {
 			a = append(a, "--bez-napisow")
 		}

@@ -100,7 +100,7 @@ func rownolegle(ile, naraz int, zadanie func(i int)) {
 }
 
 // zlozUjecia: łączy przygotowane ujęcia, nakłada nagłówek, wyrównuje dźwięk z planu i koduje gotowy plik.
-func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, przejsciaPo map[int]bool, muz *Utwor, maNapisy bool, za *ZaOsoba, wyjscie string) error {
+func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, przejsciaPo map[int]bool, muz *Utwor, maNapisy bool, za *ZaOsoba, akcenty []float64, wyjscie string) error {
 	var f strings.Builder
 	arg := []string{"-hide_banner", "-y", "-nostats", "-loglevel", "error"}
 	razem := 0.0
@@ -128,13 +128,23 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 		zrodloDzwieku = "[mx]"
 	}
 	obraz := "[vc]"
+	if len(akcenty) > 0 {
+		// uderzenie w rytm: na wybranych cięciach kadr na chwilę się przybliża i wraca (skala liczona co klatkę)
+		var e []string
+		for _, c := range akcenty[:min(len(akcenty), 60)] {
+			e = append(e, fmt.Sprintf("between(t,%s,%s)*pow(1-(t-%s)/0.18,2)", liczba(c), liczba(c+0.18), liczba(c)))
+		}
+		z := "(1+0.045*(" + strings.Join(e, "+") + "))"
+		fmt.Fprintf(&f, "[vc]scale=w='2*trunc(iw*%s/2)':h='2*trunc(ih*%s/2)':eval=frame:flags=bilinear,crop=%d:%d:(iw-%d)/2:(ih-%d)/2,setsar=1[vq];\n", z, z, st.Szer, st.Wys, st.Szer, st.Wys)
+		obraz = "[vq]"
+	}
 	if za != nil { // nagłówek za osobą: maska jest ostatnim wejściem
 		wejscieMaski := len(pliki)
 		if muz != nil {
 			wejscieMaski++
 		}
 		arg = append(arg, "-i", za.Maska)
-		f.WriteString(za.filtr(st, wejscieMaski))
+		f.WriteString(za.filtr(st, wejscieMaski, obraz))
 		obraz = "[vz]"
 	}
 	if maNapisy {
@@ -515,6 +525,18 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		naOsi += czasyEf[i]
 	}
 
+	// akcenty: co drugie ostre cięcie (bez tych z przejściem), gdy muzyka jest dynamiczna i ma wyraźny rytm
+	var akcenty []float64
+	if utwor != nil && utwor.Pewnosc >= 0.15 && utwor.BPM >= 105 && !bezNajazdu && len(czasyEf) > 3 {
+		t := 0.0
+		for i := range czasyEf {
+			if i >= 2 && i%2 == 0 && !przejsciaPo[i-1] {
+				akcenty = append(akcenty, t)
+			}
+			t += czasyEf[i]
+		}
+	}
+
 	// 5. nagłówek i złożenie
 	t2 := time.Now()
 	maNapisy := false
@@ -565,7 +587,7 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		teksty = append(teksty, strings.ReplaceAll(h.Tekst, "*", ""))
 	}
 	rap, _ := json.MarshalIndent(map[string]any{"ujecia": wybrane, "hasla": teksty, "naglowek": linieHaka, "rozum": nazwaRozumu,
-		"czas": naOsi, "nagran": len(klipy), "material": sumaNagran, "muzyka": utwor, "zaOsoba": za}, "", " ")
+		"czas": naOsi, "nagran": len(klipy), "material": sumaNagran, "muzyka": utwor, "zaOsoba": za, "akcenty": len(akcenty)}, "", " ")
 	os.WriteFile(filepath.Join(pracaAbs, "ujecia.json"), rap, 0o644)
 	if len(linieHaka) > 0 || len(hasla) > 0 || len(chwilePrzejsc) > 0 {
 		fonty, err := zapiszNapisyUjec(filepath.Join(pracaAbs, "napisy.ass"), hakNaWierzchu, czasyEf[0], hasla, chwilePrzejsc, st)
@@ -581,12 +603,12 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	enk := wybierzEnkoder(n)
 	komunikat("render", 0.92, "Składam rolkę ("+enk.Nazwa+")")
 	wy, _ := filepath.Abs(*wyjscie)
-	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, wy); err != nil {
+	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, akcenty, wy); err != nil {
 		if enk.Nazwa == "libx264" {
 			blad(err)
 		}
 		kand := kandydaciEnkoderow()
-		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, wy); err != nil {
+		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, akcenty, wy); err != nil {
 			blad(err)
 		}
 	}

@@ -135,7 +135,7 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 		if z.Muzyka != "" {
 			wejscieMaski++
 		}
-		f.WriteString(z.Za.filtr(st, wejscieMaski))
+		f.WriteString(z.Za.filtr(st, wejscieMaski, "[vc]"))
 		f.WriteString("[vz]ass=napisy.ass:fontsdir=fonty[v];\n")
 	} else {
 		f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty[v];\n")

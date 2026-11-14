@@ -169,3 +169,4 @@ details.blok[open] summary::before{content:"- "}
 .wybor-lista select{appearance:none;min-height:40px;padding:0 38px 0 16px;border-radius:99px;border:1px solid var(--linia-2);background:var(--tlo-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23B5B0A6' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;color:var(--tekst);font:600 14px/1 "Figtree",sans-serif;cursor:pointer}
 .wybor-lista select:focus{outline:none;border-color:var(--akcent)}
 .wybor-lista option{background:var(--tlo-2);color:var(--tekst)}
+.pole .podpowiedz{display:block;margin-top:8px;font:400 13px/1.45 "Figtree",sans-serif;color:var(--tekst-3,var(--tekst-2))}

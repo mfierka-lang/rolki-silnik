@@ -21,7 +21,7 @@ import (
 )
 
 // wersja: zmienna (nie stała), żeby testy mogły zbudować program udający nowszą wersję: -X main.wersja=...
-var wersja = "0.6.1"
+var wersja = "0.6.2"
 
 // komunikat: postęp jako wiersze JSON (czytane później przez stronę), a dla człowieka czytelny tekst na stderr.
 // zakresPostepu: gdy montaż jest częścią większego zlecenia, jego postęp 0-1 trafia w wycinek paska całości.
@@ -132,6 +132,7 @@ func poleceniaMontuj(arg []string) {
 	bezNapisow := fs.Bool("bez-napisow", false, "rolka bez napisów mowy")
 	muzykaOd := fs.Float64("muzyka-od", 0, "od której sekundy utworu zacząć")
 	maks := fs.Float64("maks", 0, "największa długość filmu w sekundach (0 = bez limitu)")
+	pomin := fs.Int("pomin", 0, "ile zdań z początku wypowiedzi pominąć (uwaga: skróć początek)")
 	przebitkiPlik := fs.String("przebitki", "", "plik JSON z listą nagrań bez mowy: ich fragmenty wejdą jako przebitki")
 	fs.Parse(arg)
 	pliki := fs.Args()
@@ -214,6 +215,21 @@ func poleceniaMontuj(arg []string) {
 	// 3. plan cięć i napisy
 	komunikat("plan", 0.52, "Wycinam pauzy i powtórzenia")
 	plan := zaplanujMowe(frazy, czasy, st)
+	opisPominiecia := ""
+	if *pomin > 0 { // „skróć początek”: wypadają pierwsze zdania (najwyżej połowa wypowiedzi)
+		zdania := jednostkiMowy(frazy)
+		ile := min(*pomin, len(zdania)/2)
+		for _, u := range zdania[:ile] {
+			for _, f := range u.frazy {
+				frazy[f].Odrzucona = "pominięty początek"
+			}
+		}
+		if ile > 0 {
+			plan = zaplanujMowe(frazy, czasy, st)
+			opisPominiecia = fmt.Sprintf("początek skrócony o zdania z początku: %d", ile)
+			plan.Raport = append(plan.Raport, opisPominiecia)
+		}
+	}
 	if *maks > 0 && plan.Czas > *maks {
 		// za długa wypowiedź: zostają najważniejsze zdania z początkiem i zakończeniem (zamiast ucięcia końcówki)
 		komunikat("plan", 0.525, "Skracam wypowiedź do najważniejszych zdań")
@@ -229,6 +245,9 @@ func poleceniaMontuj(arg []string) {
 		}
 		if opisSkrotu != "" {
 			plan = zaplanujMowe(frazy, czasy, st)
+			if opisPominiecia != "" {
+				plan.Raport = append(plan.Raport, opisPominiecia)
+			}
 			plan.Raport = append(plan.Raport, opisSkrotu)
 		}
 	}
