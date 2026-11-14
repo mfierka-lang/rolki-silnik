@@ -103,7 +103,7 @@ func znajdzModelLLM(dane, rola string) (model, mmproj string) {
 
 // DobryWTekscie: czy model nadaje się do pisania tekstów, które zobaczy klient (opis posta). Małe modele mylą się
 // w polskiej pisowni, więc poniżej ok. 3 GB teksty biorą się z szablonu marki.
-func (r *Rozum) DobryWTekscie() bool { return r != nil && r.rozmiar >= 3<<30 }
+func (r *Rozum) DobryWTekscie() bool { return r != nil && r.rozmiar >= 2500<<20 }
 
 func wolnyPort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")

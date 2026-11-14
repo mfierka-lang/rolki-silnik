@@ -98,7 +98,7 @@
     if (p) { a.href = p; a.textContent = system === "mac" ? "Pobierz silnik dla macOS" : "Pobierz silnik dla Windows"; }
     else { a.hidden = true; }
     $("krok-system").innerHTML = system === "mac"
-      ? "Przy pierwszym otwarciu kliknij plik prawym przyciskiem i wybierz <b>Otwórz</b>."
+      ? "Mac ostrzeże, że nie może zweryfikować aplikacji. Wejdź w <b>Ustawienia systemowe</b>, <b>Prywatność i ochrona</b>, zjedź na dół i kliknij <b>Otwórz mimo to</b>."
       : "Jeśli Windows pokaże niebieskie okno, kliknij <b>Więcej informacji</b>, potem <b>Uruchom mimo to</b>.";
     $("brak-podpowiedz").textContent = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
       ? "W Safari montaż otworzy się w osobnej karcie po uruchomieniu silnika."

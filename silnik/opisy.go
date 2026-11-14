@@ -171,12 +171,12 @@ var reWstepOpisu = regexp.MustCompile(`(?i)^\s*(zr[oó]b\s+|zmontuj\s+|poka[zż]
 var reSlowaStylu = regexp.MustCompile(`(?i)[,;]?\s*\b(dynamiczn\w*|energiczn\w*|spokojn\w*|szybk\w*|szybciej|wolniej|powoli|kr[oó]tk\w*|kr[oó]cej|d[lł]u[zż]\w*|m[oó]wion\w*|same uj[eę]cia|tylko uj[eę]cia|bez mowy|bez g[lł]osu|bez napis[oó]w|\d{1,2}\s*(s|sek\w*))\b`)
 
 var schematNaglowka = schematObiektu(map[string]any{
-	"linia1": map[string]any{"type": "string", "maxLength": 22},
-	"linia2": map[string]any{"type": "string", "maxLength": 22},
+	"linia1": map[string]any{"type": "string", "maxLength": 30},
+	"linia2": map[string]any{"type": "string", "maxLength": 30},
 }, "linia1", "linia2")
 
 func liniaNaglowkaOk(s string) bool {
-	if n := len([]rune(s)); n < 2 || n > 22 {
+	if n := len([]rune(s)); n < 2 || n > 24 { // schemat pozwala na 30: dłuższa linia jest ucięta albo za szeroka
 		return false
 	}
 	for _, r := range s {

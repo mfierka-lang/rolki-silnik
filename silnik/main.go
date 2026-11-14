@@ -20,7 +20,7 @@ import (
 	"golang.org/x/image/font/sfnt"
 )
 
-const wersja = "0.2.0"
+const wersja = "0.2.1"
 
 // komunikat: postęp jako wiersze JSON (czytane później przez stronę), a dla człowieka czytelny tekst na stderr.
 // zakresPostepu: gdy montaż jest częścią większego zlecenia, jego postęp 0-1 trafia w wycinek paska całości.

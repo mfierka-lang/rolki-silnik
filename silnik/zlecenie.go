@@ -368,7 +368,9 @@ func polecenieWykonaj(arg []string) {
 			if o.Mowione || (rodzaj == "mowa" && o.Slow >= 4) {
 				mowione = append(mowione, i)
 				for _, s := range o.Slowa {
-					tekstMowy = append(tekstMowy, s.Tekst)
+					if !toWtracenie(s.Tekst) { // bez yyy i eee: ten tekst trafia do opisu posta
+						tekstMowy = append(tekstMowy, s.Tekst)
+					}
 				}
 			}
 		}
