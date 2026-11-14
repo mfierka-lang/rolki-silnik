@@ -38,6 +38,10 @@ const (
 	gh = "https://github.com/"
 )
 
+// modelSylwetki: MODNet (Apache 2.0) w formacie ONNX; razem z ONNX Runtime daje napis za osobą.
+var modelSylwetki = Skladnik{Nazwa: "modnet.onnx", Opis: "model wycinający sylwetkę osoby (26 MB)", MB: 26, Cel: "modele", Sprawdz: "modnet.onnx",
+	URL: hf + "Xenova/modnet/resolve/main/onnx/model.onnx", SHA256: "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9"}
+
 func skladniki() []Skladnik {
 	modele := []Skladnik{
 		{Nazwa: "ggml-large-v3-turbo-q5_0.bin", Opis: "model rozpoznawania mowy (574 MB)", MB: 574, Cel: "modele", Sprawdz: "ggml-large-v3-turbo-q5_0.bin", Wymagany: true,
@@ -61,6 +65,10 @@ func skladniki() []Skladnik {
 				URL: gh + "ggml-org/llama.cpp/releases/download/b12377/llama-b12377-bin-win-vulkan-x64.zip", SHA256: "0162ff9acc36ef88575d673e56e16673f455fb685fea1857c96fb57dd4831ff7"},
 			{Nazwa: "llama-b12377-bin-win-cpu-x64.zip", Opis: "llama.cpp: wersja zapasowa bez karty graficznej (25 MB)", MB: 25, Cel: "llama", Sprawdz: "llama-server.exe",
 				URL: gh + "ggml-org/llama.cpp/releases/download/b12377/llama-b12377-bin-win-cpu-x64.zip", SHA256: "d3b60c5abbe3a131c77e568310547492438bc7c785721eb765d2d817fe4424c5"},
+			{Nazwa: "onnxruntime-win-x64-1.32.0.zip", Opis: "ONNX Runtime: wycinanie sylwetki do napisu za osobą (97 MB)", MB: 97, Cel: "ort",
+				Wyjmij: []string{"onnxruntime.dll", "onnxruntime_providers_shared.dll"}, Sprawdz: "onnxruntime.dll",
+				URL: gh + "microsoft/onnxruntime/releases/download/v1.32.0/onnxruntime-win-x64-1.32.0.zip", SHA256: "aaa1d04fcf86bd31e84b90bc0cbde80e632bd0720dcc5d8ba05c4fe45c09d127"},
+			modelSylwetki,
 		}, modele...)
 	case "darwin/arm64":
 		// ffmpeg: statyczna kompilacja martin-riedl.de (ma libass; nie ma vidstab, więc na Macu rolki są bez
@@ -75,6 +83,10 @@ func skladniki() []Skladnik {
 				URL: gh + "mfierka-lang/rolki-silnik/releases/download/mac-narzedzia-1/whisper-cli-macos-arm64.zip", SHA256: "d06992144e9b5982f9dc7d919310dd69f05c3348577cf32fae8825128733c565"},
 			{Nazwa: "llama-b12377-bin-macos-arm64.tar.gz", Opis: "llama.cpp: uruchamianie modeli (17 MB)", MB: 17, Cel: "llama", Sprawdz: "llama-server",
 				URL: gh + "ggml-org/llama.cpp/releases/download/b12377/llama-b12377-bin-macos-arm64.tar.gz", SHA256: "abf1e91b761acdd707cc8e66abe930e47fe1a64ccb1e63662bdd67f7aebe3306"},
+			{Nazwa: "onnxruntime-osx-arm64-1.32.0.tgz", Opis: "ONNX Runtime: wycinanie sylwetki do napisu za osobą (39 MB)", MB: 39, Cel: "ort",
+				Wyjmij: []string{"libonnxruntime.dylib"}, Sprawdz: "libonnxruntime.dylib",
+				URL: gh + "microsoft/onnxruntime/releases/download/v1.32.0/onnxruntime-osx-arm64-1.32.0.tgz", SHA256: "8ddca23f532b9d4fbb279ba9b08dab6c0ac94fdc9aec2eb44a1db7049216c043"},
+			modelSylwetki,
 		}, modele...)
 	case "darwin/amd64":
 		return append([]Skladnik{
@@ -214,7 +226,7 @@ func pobierzSkladnik(dane string, s Skladnik, postep func(float64)) error {
 	switch {
 	case strings.HasSuffix(s.Nazwa, ".zip"):
 		err = rozpakujZip(plik, cel, s.Wyjmij)
-	case strings.HasSuffix(s.Nazwa, ".tar.gz"):
+	case strings.HasSuffix(s.Nazwa, ".tar.gz"), strings.HasSuffix(s.Nazwa, ".tgz"):
 		err = rozpakujTarGz(plik, cel, s.Wyjmij)
 	default:
 		err = os.Rename(plik, filepath.Join(cel, s.Nazwa))

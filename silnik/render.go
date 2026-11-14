@@ -16,14 +16,16 @@ import (
 )
 
 type Zlecenie struct {
-	Klipy    []*Klip
-	Plan     *PlanMowy
-	Styl     *Styl
-	Fonty    []string // pliki fontów do skopiowania do katalogu pracy
-	Muzyka   string   // opcjonalnie
-	MuzykaOd float64  // od której sekundy utworu zacząć (po cichym wstępie)
-	Wyjscie  string
-	Praca    string // katalog roboczy: napisy.ass, fonty/, filtr.txt
+	Klipy     []*Klip
+	Plan      *PlanMowy
+	Styl      *Styl
+	Fonty     []string // pliki fontów do skopiowania do katalogu pracy
+	Muzyka    string   // opcjonalnie
+	MuzykaOd  float64  // od której sekundy utworu zacząć (po cichym wstępie)
+	Wyjscie   string
+	Praca     string      // katalog roboczy: napisy.ass, fonty/, filtr.txt
+	Za        *ZaOsoba    // nagłówek za osobą (nil = zwykły nagłówek w napisy.ass)
+	Przebitki []Przebitka // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
 }
 
 func liczba(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
@@ -40,7 +42,7 @@ func kopiuj(z, do string) error {
 func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 	st := z.Styl
 	kl := float64(st.Klatki)
-	var f strings.Builder
+	var f, fa strings.Builder // obraz i dźwięk osobno: sam obraz służy też do liczenia maski osoby
 	var wejscia []string
 	var etykietyV, etykietyA []string
 	g := 0 // numer odcinka w całej rolce (do naprzemiennych zbliżeń)
@@ -85,25 +87,60 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 		etykietyV = append(etykietyV, fmt.Sprintf("[v%d]", we))
 
 		// dźwięk: każdy odcinek osobno (dokładność do próbki), krótkie wyciszenia na brzegach przeciw trzaskom
-		fmt.Fprintf(&f, "[%d:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=mono,asplit=%d", we, len(odc))
+		fmt.Fprintf(&fa, "[%d:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=mono,asplit=%d", we, len(odc))
 		for i := range odc {
-			fmt.Fprintf(&f, "[x%d_%d]", we, i)
+			fmt.Fprintf(&fa, "[x%d_%d]", we, i)
 		}
-		f.WriteString(";\n")
+		fa.WriteString(";\n")
 		for i, o := range odc {
 			d := o.Do - o.Od
-			fmt.Fprintf(&f, "[x%d_%d]atrim=start=%s:end=%s,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.006,afade=t=out:st=%s:d=0.012[y%d_%d];\n",
+			fmt.Fprintf(&fa, "[x%d_%d]atrim=start=%s:end=%s,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.006,afade=t=out:st=%s:d=0.012[y%d_%d];\n",
 				we, i, liczba(o.Od), liczba(o.Do), liczba(math.Max(0, d-0.012)), we, i)
 			etykietyA = append(etykietyA, fmt.Sprintf("[y%d_%d]", we, i))
 		}
 	}
 	czas := z.Plan.Czas
-	if len(etykietyV) > 1 {
-		fmt.Fprintf(&f, "%sconcat=n=%d:v=1:a=0[vc];\n", strings.Join(etykietyV, ""), len(etykietyV))
-	} else {
-		fmt.Fprintf(&f, "%snull[vc];\n", etykietyV[0])
+	surowy := "[vc]"
+	if len(z.Przebitki) > 0 && z.Wyjscie != "" {
+		surowy = "[vb0]"
 	}
-	f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty[v];\n")
+	if len(etykietyV) > 1 {
+		fmt.Fprintf(&f, "%sconcat=n=%d:v=1:a=0%s;\n", strings.Join(etykietyV, ""), len(etykietyV), surowy)
+	} else {
+		fmt.Fprintf(&f, "%snull%s;\n", etykietyV[0], surowy)
+	}
+	if surowy != "[vc]" {
+		// wejścia ffmpeg: nagrania, potem muzyka, maska osoby, na końcu przebitki
+		pierwsze := len(wejscia)
+		if z.Muzyka != "" {
+			pierwsze++
+		}
+		if z.Za != nil {
+			pierwsze++
+		}
+		for j, p := range z.Przebitki {
+			wy := fmt.Sprintf("[vb%d]", j+1)
+			if j == len(z.Przebitki)-1 {
+				wy = "[vc]"
+			}
+			fmt.Fprintf(&f, "[%d:v]fps=%d,setpts=PTS-STARTPTS+%s/TB,format=yuv420p,setsar=1[pb%d];\n[vb%d][pb%d]overlay=enable='between(t,%s,%s)':eof_action=pass%s;\n",
+				pierwsze+j, st.Klatki, liczba(p.Od), j, j, j, liczba(p.Od), liczba(p.Do-0.5/kl), wy)
+		}
+	}
+	if z.Wyjscie == "" { // sam obraz przed napisami (do maski osoby)
+		return f.String(), wejscia, czas
+	}
+	if z.Za != nil {
+		wejscieMaski := len(wejscia)
+		if z.Muzyka != "" {
+			wejscieMaski++
+		}
+		f.WriteString(z.Za.filtr(st, wejscieMaski))
+		f.WriteString("[vz]ass=napisy.ass:fontsdir=fonty[v];\n")
+	} else {
+		f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty[v];\n")
+	}
+	f.WriteString(fa.String())
 
 	fmt.Fprintf(&f, "%sconcat=n=%d:v=0:a=1[g0];\n", strings.Join(etykietyA, ""), len(etykietyA))
 	d := st.Dzwiek
@@ -151,6 +188,12 @@ func renderuj(n *Narzedzia, enk Enkoder, z *Zlecenie, postep func(float64)) erro
 	}
 	if z.Muzyka != "" {
 		arg = append(arg, "-ss", liczba(z.MuzykaOd), "-stream_loop", "-1", "-i", z.Muzyka)
+	}
+	if z.Za != nil {
+		arg = append(arg, "-i", z.Za.Maska)
+	}
+	for _, p := range z.Przebitki {
+		arg = append(arg, "-i", p.Plik)
 	}
 	arg = append(arg, "-/filter_complex", "filtr.txt", "-map", "[v]", "-map", "[a]", "-r", fmt.Sprint(z.Styl.Klatki))
 	arg = append(arg, enk.Arg...)

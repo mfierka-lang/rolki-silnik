@@ -147,7 +147,9 @@ func sposobySkanu() []sposobSkanu {
 	return s
 }
 
-var sposobWybrany = -1
+// sposobZawiodl: sposoby skanu, które na tym komputerze nie działają (np. brak karty Intela albo NVIDII). Sposób pominięty
+// dla jednego nagrania (np. obrócony film z telefonu) nie jest przez to skreślany dla pozostałych.
+var sposobZawiodl = map[string]int{}
 
 func zmniejsz4(src []byte, w, h int, dst []byte) {
 	mw, mh := w/4, h/4
@@ -361,15 +363,12 @@ func skanuj(n *Narzedzia, k *Klip) (*Skan, error) {
 		w, h = 216, 384
 	}
 	sposoby := sposobySkanu()
-	od := 0
-	if sposobWybrany >= 0 {
-		od = sposobWybrany
-	}
 	var ostBlad error
-	for si := od; si < len(sposoby); si++ {
+	for si := 0; si < len(sposoby); si++ {
 		sp := sposoby[si]
 		przed := sp.przed(k)
-		if przed == nil {
+		// dwa niepowodzenia z rzędu = sposób nie działa na tym komputerze (ostatni, programowy, próbujemy zawsze)
+		if przed == nil || (sposobZawiodl[sp.nazwa] >= 2 && si < len(sposoby)-1) {
 			continue
 		}
 		arg := append([]string{"-v", "error", "-nostdin"}, przed...)
@@ -409,7 +408,7 @@ func skanuj(n *Narzedzia, k *Klip) (*Skan, error) {
 		}
 		err = cmd.Wait()
 		if len(sk.Probki) >= 3 && float64(len(sk.Probki)) > 0.8*k.Czas*skanFPS {
-			sposobWybrany = si
+			sposobZawiodl[sp.nazwa] = 0
 			sk.CzasSkan = time.Since(start).Seconds()
 			if pamiec != "" {
 				os.MkdirAll(filepath.Dir(pamiec), 0o755)
@@ -420,9 +419,7 @@ func skanuj(n *Narzedzia, k *Klip) (*Skan, error) {
 			return sk, nil
 		}
 		ostBlad = fmt.Errorf("sposób %s nie zadziałał (%v)", sp.nazwa, err)
-		if sposobWybrany >= 0 { // działał wcześniej, a na tym pliku nie: próbujemy kolejnych
-			sposobWybrany = -1
-		}
+		sposobZawiodl[sp.nazwa]++
 	}
 	return nil, fmt.Errorf("nie udało się przeanalizować %s: %v", k.Plik, ostBlad)
 }

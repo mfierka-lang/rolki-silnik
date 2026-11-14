@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -75,8 +76,31 @@ func przygotujUjecie(n *Narzedzia, k *Klip, o Okno, st *Styl, praca, nazwa strin
 	return nil
 }
 
+// ileNaraz: ile ujęć przygotowywać jednocześnie. Mało pamięci albo mało rdzeni: 2; inaczej 3.
+func ileNaraz() int {
+	if ram, ok := pamiecRAM(); (ok && ram < 11<<30) || runtime.NumCPU() <= 4 {
+		return 2
+	}
+	return 3
+}
+
+// rownolegle: wykonuje zadanie(i) dla i = 0..ile-1, najwyżej naraz jednocześnie.
+func rownolegle(ile, naraz int, zadanie func(i int)) {
+	var grupa sync.WaitGroup
+	miejsca := make(chan struct{}, max(1, naraz))
+	for i := 0; i < ile; i++ {
+		grupa.Add(1)
+		miejsca <- struct{}{}
+		go func(i int) {
+			defer func() { <-miejsca; grupa.Done() }()
+			zadanie(i)
+		}(i)
+	}
+	grupa.Wait()
+}
+
 // zlozUjecia: łączy przygotowane ujęcia, nakłada nagłówek, wyrównuje dźwięk z planu i koduje gotowy plik.
-func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, przejsciaPo map[int]bool, muz *Utwor, maNapisy bool, wyjscie string) error {
+func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, przejsciaPo map[int]bool, muz *Utwor, maNapisy bool, za *ZaOsoba, wyjscie string) error {
 	var f strings.Builder
 	arg := []string{"-hide_banner", "-y", "-nostats", "-loglevel", "error"}
 	razem := 0.0
@@ -103,10 +127,20 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 			len(pliki), liczba(wzmocnienieMuzyki(muz, -19)), liczba(math.Max(0, razem-0.9)))
 		zrodloDzwieku = "[mx]"
 	}
+	obraz := "[vc]"
+	if za != nil { // nagłówek za osobą: maska jest ostatnim wejściem
+		wejscieMaski := len(pliki)
+		if muz != nil {
+			wejscieMaski++
+		}
+		arg = append(arg, "-i", za.Maska)
+		f.WriteString(za.filtr(st, wejscieMaski))
+		obraz = "[vz]"
+	}
 	if maNapisy {
-		f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty[v];\n")
+		f.WriteString(obraz + "ass=napisy.ass:fontsdir=fonty[v];\n")
 	} else {
-		f.WriteString("[vc]null[v];\n")
+		f.WriteString(obraz + "null[v];\n")
 	}
 	// dźwięk z planu zostaje (nigdy cisza). Dopóki nie ma muzyki, jest całą ścieżką, więc dostaje pełną głośność;
 	// gdy dojdzie muzyka z biblioteki, zejdzie o kilka dB i będzie tłem.
@@ -424,18 +458,32 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	var maDzw []bool
 	var czasy []float64
 	stabilizowane := 0
+	// kilka ujęć naraz: każde to osobny ffmpeg, a procesor ma wolne rdzenie
+	bledyUjec := make([]error, len(wybrane))
+	stabil := make([]bool, len(wybrane))
+	zaStab := maFiltr(n, "vidstabdetect")
 	for i, o := range wybrane {
-		komunikat("ujecia", 0.6+0.3*float64(i)/float64(len(wybrane)), fmt.Sprintf("Przygotowuję ujęcie %d z %d", i+1, len(wybrane)))
-		nazwa := fmt.Sprintf("ujecie%02d", i)
 		// stabilizacja tylko tam, gdzie drgania są widoczne; spokojnym ujęciom mogłaby zaszkodzić
-		s := (*stab == "tak" || (*stab == "auto" && o.Drgania > 1.2)) && maFiltr(n, "vidstabdetect")
-		if s {
+		stabil[i] = (*stab == "tak" || (*stab == "auto" && o.Drgania > 1.2)) && zaStab
+		if stabil[i] {
 			stabilizowane++
 		}
-		if err := przygotujUjecie(n, klipy[o.Klip], o, st, pracaAbs, nazwa, s); err != nil {
-			blad(err)
+	}
+	gotowych := 0
+	var blokada sync.Mutex
+	rownolegle(len(wybrane), ileNaraz(), func(i int) {
+		o := wybrane[i]
+		bledyUjec[i] = przygotujUjecie(n, klipy[o.Klip], o, st, pracaAbs, fmt.Sprintf("ujecie%02d", i), stabil[i])
+		blokada.Lock()
+		gotowych++
+		komunikat("ujecia", 0.6+0.3*float64(gotowych)/float64(len(wybrane)), fmt.Sprintf("Przygotowuję ujęcia: %d z %d", gotowych, len(wybrane)))
+		blokada.Unlock()
+	})
+	for i, o := range wybrane {
+		if bledyUjec[i] != nil {
+			blad(bledyUjec[i])
 		}
-		seg = append(seg, nazwa+".mkv")
+		seg = append(seg, fmt.Sprintf("ujecie%02d.mkv", i))
 		maDzw = append(maDzw, klipy[o.Klip].MaDzwiek)
 		czasy = append(czasy, o.Do-o.Od)
 	}
@@ -488,15 +536,25 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	} else {
 		hasla = rozlozNapisy(*napisySpec, czasyEf, *hak != "")
 	}
+	// nagłówek za osobą: tylko gdy na pierwszym ujęciu model widział człowieka (inaczej szkoda czasu na maskę)
+	var za *ZaOsoba
+	hakNaWierzchu := linieHaka
+	if len(linieHaka) > 0 && len(wybrane) > 0 && wybrane[0].Opis != nil && wybrane[0].Opis.Ludzie >= 1 {
+		komunikat("napisy", 0.91, "Ustawiam nagłówek za osobą")
+		za = przygotujZaOsoba(n, st, pracaAbs, []string{"-i", seg[0]}, fmt.Sprintf("[0:v]setpts=PTS-STARTPTS,fps=%d,setsar=1[vmaska]", st.Klatki), linieHaka, czasyEf[0], st.Napisy.Y-0.12)
+		if za != nil {
+			hakNaWierzchu = nil
+		}
+	}
 	var teksty []string
 	for _, h := range hasla {
 		teksty = append(teksty, strings.ReplaceAll(h.Tekst, "*", ""))
 	}
 	rap, _ := json.MarshalIndent(map[string]any{"ujecia": wybrane, "hasla": teksty, "naglowek": linieHaka, "rozum": nazwaRozumu,
-		"czas": naOsi, "nagran": len(klipy), "material": sumaNagran, "muzyka": utwor}, "", " ")
+		"czas": naOsi, "nagran": len(klipy), "material": sumaNagran, "muzyka": utwor, "zaOsoba": za}, "", " ")
 	os.WriteFile(filepath.Join(pracaAbs, "ujecia.json"), rap, 0o644)
 	if len(linieHaka) > 0 || len(hasla) > 0 || len(chwilePrzejsc) > 0 {
-		fonty, err := zapiszNapisyUjec(filepath.Join(pracaAbs, "napisy.ass"), linieHaka, czasyEf[0], hasla, chwilePrzejsc, st)
+		fonty, err := zapiszNapisyUjec(filepath.Join(pracaAbs, "napisy.ass"), hakNaWierzchu, czasyEf[0], hasla, chwilePrzejsc, st)
 		if err != nil {
 			blad(err)
 		}
@@ -509,12 +567,12 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	enk := wybierzEnkoder(n)
 	komunikat("render", 0.92, "Składam rolkę ("+enk.Nazwa+")")
 	wy, _ := filepath.Abs(*wyjscie)
-	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, wy); err != nil {
+	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, wy); err != nil {
 		if enk.Nazwa == "libx264" {
 			blad(err)
 		}
 		kand := kandydaciEnkoderow()
-		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, wy); err != nil {
+		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, wy); err != nil {
 			blad(err)
 		}
 	}

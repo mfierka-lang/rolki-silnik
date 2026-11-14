@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +60,10 @@ func ulamek(s string) float64 {
 }
 
 func sonduj(n *Narzedzia, plik string) (*Klip, error) {
+	// jedna postać ścieżki (pełna, z ukośnikami systemu): od niej zależą klucze pamięci skanów, opisów i mowy
+	if abs, err := filepath.Abs(plik); err == nil {
+		plik = abs
+	}
 	ctx, stop := context.WithTimeout(context.Background(), 60*time.Second)
 	defer stop()
 	out, errs, err := uruchom(ctx, "", n.FFprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", plik)

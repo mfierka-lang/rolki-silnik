@@ -165,10 +165,13 @@ func normalizujZdanie(s string) string {
 	return strings.Join(out, " ")
 }
 
-var reWstepOpisu = regexp.MustCompile(`(?i)^\s*(zr[oó]b\s+|zmontuj\s+|poka[zż]\s+|prosz[eę]\s+)?(kr[oó]tk[aąi]\s+|dynamiczn[aąy]\s+)?(rolk[aęi]|film|filmik|montaż|montaz|materia[lł])?\s*(o|na temat|z|pokazuj[aą]c[aąy])?\s+`)
+var reWstepOpisu = regexp.MustCompile(`(?i)^\s*(zr[oó]b\s+|zmontuj\s+|poka[zż]\s+|prosz[eę]\s+)?(kr[oó]tk[aąi]\s+|dynamiczn[aąy]\s+)?((rolk[aęi]|film|filmik|materia[lł])\s*(o|na temat|z|pokazuj[aą]c[aąy])?|(montaż|montaz)\s+(o|na temat|z|pokazuj[aą]c[aąy])|(o|na temat))?\s+`)
+
+// po usunięciu słów sterujących zostają czasem puste miejsca między przecinkami
+var rePusteMiejsca = regexp.MustCompile(`\s*,(\s*,)*\s*`)
 
 // słowa, które sterują montażem, a nie są treścią nagłówka
-var reSlowaStylu = regexp.MustCompile(`(?i)[,;]?\s*\b(dynamiczn\w*|energiczn\w*|spokojn\w*|szybk\w*|szybciej|wolniej|powoli|kr[oó]tk\w*|kr[oó]cej|d[lł]u[zż]\w*|m[oó]wion\w*|same uj[eę]cia|tylko uj[eę]cia|bez mowy|bez g[lł]osu|bez napis[oó]w|\d{1,2}\s*(s|sek\w*))\b`)
+var reSlowaStylu = regexp.MustCompile(`(?i)[,;]?\s*(\bchc[eę]\s+(mie[cć]\s+)?|\bpoprosz[eę]\s+|\bpotrzebuj[eę]\s+|\bma\s+(to\s+)?by[cć]\s+|\boko[lł]o\s+|\bw\s+proporcj[\p{L}]*\s*|\b\d{1,2}\s*[:x]\s*\d{1,2}\b|\b\d{1,3}([.,]\d)?\s*(min[\p{L}]*|sek[\p{L}]*|s)\b|\bp[oó][lł]torej\s+minut[\p{L}]*|\bdynamiczn[\p{L}]*|\benergiczn[\p{L}]*|\bspokojn[\p{L}]*|\bszybk[\p{L}]*|\bszybciej|\bwolniej|\bpowoli|\bkr[oó]tk[\p{L}]*|\bkr[oó]cej|\bd[lł]u[zż][\p{L}]*|\bm[oó]wion[\p{L}]*|\bsame uj[eę]cia|\btylko uj[eę]cia|\bbez mowy|\bbez g[lł]osu|\bbez napis[oó]w|\bbez muzyki|\bpoziom[\p{L}]*|\bpionow[\p{L}]*|\bw pionie|\bna (tiktok[\p{L}]*|instagram[\p{L}]*|youtube|yt)\b)`)
 
 var schematNaglowka = schematObiektu(map[string]any{
 	"linia1": map[string]any{"type": "string", "maxLength": 30},
@@ -195,7 +198,9 @@ func liniaNaglowkaOk(s string) bool {
 // modelu nie ma albo odpowiedź jest podejrzana, nagłówek powstaje regułą z pierwszych słów opisu.
 func naglowekZOpisu(r *Rozum, opis string) []string {
 	opis = czyscTekst(reSlowaStylu.ReplaceAllString(opis, " "))
-	opis = strings.Trim(opis, " ,.;:-")
+	opis = strings.Trim(rePusteMiejsca.ReplaceAllString(opis, ", "), " ,.;:-")
+	opis = strings.TrimLeft(reWstepOpisu.ReplaceAllString(" "+opis+" ", " "), " ,.;:-")
+	opis = strings.TrimSpace(opis)
 	if opis == "" {
 		return nil
 	}
@@ -211,7 +216,13 @@ func naglowekZOpisu(r *Rozum, opis string) []string {
 			"Opis: nowe breloki\nNaglowek: {\"linia1\":\"Nowe breloki\",\"linia2\":\"\"}\n" +
 			"Opis: " + opis + "\nNaglowek:"
 		if err := r.pytaj("Piszesz po polsku, poprawnie, z polskimi znakami.", pyt, nil, schematNaglowka, 60, &o); err == nil {
-			l1, l2 := czyscTekst(o.Linia1), czyscTekst(o.Linia2)
+			l1, l2 := przytnijLinie(czyscTekst(o.Linia1)), przytnijLinie(czyscTekst(o.Linia2))
+			if p := strings.Fields(l1); len(p) > 0 {
+				if m, jest := mianownikProduktu[strings.ToLower(p[0])]; jest {
+					p[0] = m
+					l1 = strings.Join(p, " ")
+				}
+			}
 			if liniaNaglowkaOk(l1) && (l2 == "" || liniaNaglowkaOk(l2)) && slowaZOpisu(l1+" "+l2, opis) {
 				if l2 == "" {
 					return []string{l1}
@@ -220,26 +231,71 @@ func naglowekZOpisu(r *Rozum, opis string) []string {
 			}
 		}
 	}
-	// reguła: opis bez wstępu „rolka o…”, do pierwszego przecinka, najwyżej 5 słów, podział w połowie
-	t := reWstepOpisu.ReplaceAllString(opis+" ", "")
-	if i := strings.IndexAny(t, ",.;:!?"); i > 0 {
-		t = t[:i]
+	// reguła: opis bez wstępu „rolka o…”, do pierwszego przecinka; dwie linie do 22 znaków, żadna nie kończy się przyimkiem
+	// pierwsza część opisu (do znaku przestankowego), która coś mówi: sam wstęp typu „film” albo „rolka” odpada
+	var slowa []string
+	for _, czesc := range reCzesciOpisu.Split(opis, -1) {
+		t := strings.TrimLeft(reWstepOpisu.ReplaceAllString(" "+czesc+" ", ""), " ,.;:-")
+		kand := strings.Fields(t)
+		if len(kand) == 0 || (len(kand) == 1 && slowoOgolne[strings.ToLower(kand[0])]) {
+			continue
+		}
+		slowa = kand
+		break
 	}
-	slowa := strings.Fields(t)
 	if len(slowa) == 0 {
 		return nil
 	}
-	if len(slowa) > 5 {
-		slowa = slowa[:5]
+	if m, jest := mianownikProduktu[strings.ToLower(slowa[0])]; jest { // „o brelokach” -> „Breloki”
+		slowa[0] = m
 	}
 	r0 := []rune(slowa[0])
 	r0[0] = unicode.ToUpper(r0[0])
 	slowa[0] = string(r0)
-	if len(slowa) <= 2 {
-		return []string{strings.Join(slowa, " ")}
+	var linie []string
+	for len(slowa) > 0 && len(linie) < 2 {
+		ile := 0
+		for ile < len(slowa) && len([]rune(strings.Join(slowa[:ile+1], " "))) <= 22 {
+			ile++
+		}
+		if ile == 0 {
+			ile = 1 // jedno bardzo długie słowo
+		}
+		for ile > 1 && koncowkaLinii[strings.ToLower(slowa[ile-1])] {
+			ile-- // przyimek albo spójnik przechodzi do następnej linii (w drugiej linii po prostu wypada)
+		}
+		linie = append(linie, strings.Join(slowa[:ile], " "))
+		slowa = slowa[ile:]
 	}
-	pol := (len(slowa) + 1) / 2
-	return []string{strings.Join(slowa[:pol], " "), strings.Join(slowa[pol:], " ")}
+	return linie
+}
+
+var reCzesciOpisu = regexp.MustCompile(`[,.;:!?]+`)
+
+// slowoOgolne: słowa, które same nie są tematem filmu.
+var slowoOgolne = map[string]bool{"film": true, "filmik": true, "rolka": true, "rolkę": true, "rolke": true, "materiał": true, "material": true, "montaż": true, "montaz": true}
+
+// mianownikProduktu: produkty marki w miejscowniku („o brelokach”) i ich forma do nagłówka.
+var mianownikProduktu = map[string]string{"brelokach": "Breloki", "breloczkach": "Breloczki", "magnesach": "Magnesy", "stojakach": "Stojaki",
+	"wizytówkach": "Wizytówki", "wizytowkach": "Wizytówki", "naklejkach": "Naklejki", "zawieszkach": "Zawieszki", "gadżetach": "Gadżety", "gadzetach": "Gadżety"}
+
+// koncowkaLinii: słowa, na których linia nagłówka nie powinna się kończyć.
+var koncowkaLinii = map[string]bool{"w": true, "we": true, "na": true, "z": true, "ze": true, "do": true, "dla": true, "o": true, "i": true, "a": true,
+	"od": true, "po": true, "przy": true, "nad": true, "pod": true, "za": true, "u": true, "oraz": true, "jak": true}
+
+// przytnijLinie: za długa linia od modelu kończy się na pierwszym przecinku albo na ostatnim słowie mieszczącym się w limicie.
+func przytnijLinie(s string) string {
+	if len([]rune(s)) <= 24 {
+		return s
+	}
+	if i := strings.Index(s, ","); i > 3 {
+		s = strings.TrimSpace(s[:i])
+	}
+	slowa := strings.Fields(s)
+	for len(slowa) > 1 && (len([]rune(strings.Join(slowa, " "))) > 24 || koncowkaLinii[strings.ToLower(slowa[len(slowa)-1])]) {
+		slowa = slowa[:len(slowa)-1]
+	}
+	return strings.Join(slowa, " ")
 }
 
 // slowaZOpisu: czy nagłówek składa się głównie ze słów użytkownika (porównanie po rdzeniach 4-literowych).

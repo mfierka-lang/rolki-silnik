@@ -54,19 +54,22 @@ type Wynik struct {
 
 // Ustawienia: to, co wynika z opisu i z uwag wpisanych w „Popraw”. Opis zmienia treść i tempo rolki, nie styl marki.
 type Ustawienia struct {
-	Rodzaj      string // wymuszony rodzaj rolki
-	Dlugosc     float64
-	Ujecie      float64
-	SkalaNapisu float64
-	BezNapisow  bool
-	BezNaglowka bool
-	BezMuzyki   bool
-	Naglowek    []string
-	Pomin       int // ile ujęć z początku pominąć („skróć początek”)
-	Notatki     []string
+	Rodzaj        string // wymuszony rodzaj rolki
+	Dlugosc       float64
+	Ujecie        float64
+	SkalaNapisu   float64
+	BezNapisow    bool
+	BezNaglowka   bool
+	BezMuzyki     bool
+	Naglowek      []string
+	Pomin         int    // ile ujęć z początku pominąć („skróć początek”)
+	DlugoscPodana bool   // długość wpisana wprost w opisie (sekundy albo minuty)
+	Format        string // "pion" albo "poziom", gdy opis mówi o proporcjach
+	Notatki       []string
 }
 
-var reSekundy = regexp.MustCompile(`(\d{1,2})\s*(s\b|sek)`)
+var reSekundy = regexp.MustCompile(`(\d{1,3})\s*(s\b|sek)`)
+var reMinuty = regexp.MustCompile(`(\d{1,2}(?:[.,]\d)?)\s*min`)
 var reNaglowek = regexp.MustCompile(`(?i)(nag[lł][oó]wek|tytu[lł])\s*:\s*(.+)$`)
 var rePodzialLinii = regexp.MustCompile(`\s*[|/]\s*`)
 
@@ -104,9 +107,28 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 				u.Notatki = append(u.Notatki, "Spokojniejsze tempo: ujęcia po 3 s.")
 			}
 		}
-		if m := reSekundy.FindStringSubmatch(t); m != nil {
-			if v, _ := strconv.Atoi(m[1]); v >= 6 && v <= 60 {
-				u.Dlugosc = float64(v)
+		male := strings.ToLower(surowe)
+		switch {
+		case strings.Contains(male, "16:9") || strings.Contains(male, "16 : 9") || strings.Contains(male, "16x9") || ma(" poziom", " panoram", " na youtube", " na yt "):
+			u.Format = "poziom"
+		case strings.Contains(male, "9:16") || strings.Contains(male, "9 : 16") || strings.Contains(male, "9x16") || ma(" pionow", " w pionie", " pion ", " na tiktok", " na instagram", " rolk"):
+			u.Format = "pion"
+		}
+		if mm := reMinuty.FindStringSubmatch(male); mm != nil || strings.Contains(t, " poltorej min") || strings.Contains(t, " pol minuty") {
+			v := 1.5
+			if strings.Contains(t, " pol minuty") {
+				v = 0.5
+			}
+			if mm != nil {
+				v, _ = strconv.ParseFloat(strings.Replace(mm[1], ",", ".", 1), 64)
+			}
+			if v >= 0.2 && v <= 10 {
+				u.Dlugosc, u.DlugoscPodana = math.Round(v*60), true
+				u.Notatki = append(u.Notatki, fmt.Sprintf("Długość ustawiona na %.0f s.", u.Dlugosc))
+			}
+		} else if m := reSekundy.FindStringSubmatch(t); m != nil {
+			if v, _ := strconv.Atoi(m[1]); v >= 6 && v <= 600 {
+				u.Dlugosc, u.DlugoscPodana = float64(v), true
 				u.Notatki = append(u.Notatki, fmt.Sprintf("Długość ustawiona na %d s.", v))
 			}
 		} else if ma(" krocej", " skroc ", " krotsz", " za dlug") && !ma(" poczat") {
@@ -153,7 +175,7 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 			}
 		}
 	}
-	u.Dlugosc = math.Max(6, math.Min(60, u.Dlugosc))
+	u.Dlugosc = math.Max(6, math.Min(600, u.Dlugosc))
 	return u
 }
 
@@ -364,6 +386,17 @@ func polecenieWykonaj(arg []string) {
 	}
 	os.MkdirAll(z.Praca, 0o755)
 	ust := zrozumUwagi(z.Opis, z.Popraw)
+	// To, co użytkownik napisał w opisie, ma pierwszeństwo przed przełącznikami na stronie: proporcje i długość.
+	if ust.Format != "" && ust.Format != z.Format && !(ust.Format == "pion" && z.Format == "") {
+		z.Format = ust.Format
+		ust.Notatki = append(ust.Notatki, map[string]string{"poziom": "Format z opisu: poziomy 16:9.", "pion": "Format z opisu: pionowy 9:16."}[ust.Format])
+	}
+	if ust.DlugoscPodana && ust.Dlugosc > 60 {
+		z.Dlugosc = "dlugi"
+	}
+	if ust.DlugoscPodana && ust.Dlugosc <= 60 && z.Dlugosc == "dlugi" {
+		z.Dlugosc = "krotki"
+	}
 	stylPlik := stylZlecenia(z, ust)
 	st, err := wczytajStyl(stylPlik)
 	if err != nil {
@@ -424,6 +457,7 @@ func polecenieWykonaj(arg []string) {
 	}
 	var mowione []int
 	var tekstMowy []string
+	var oceny []OcenaMowy
 	if rodzaj != "ujecia" {
 		for i, k := range klipy {
 			twarz, _, _ := udzialTwarzy(skany[i])
@@ -431,13 +465,51 @@ func polecenieWykonaj(arg []string) {
 				continue
 			}
 			komunikat("mowa", 0.28+0.1*float64(i)/float64(len(klipy)), fmt.Sprintf("Słucham, co mówi osoba w nagraniu %d", i+1))
-			o := ocenMowe(n, st, z.Praca, i, k)
-			if o.Mowione || (rodzaj == "mowa" && o.Slow >= 4) {
-				mowione = append(mowione, i)
-				for _, s := range o.Slowa {
-					if !toWtracenie(s.Tekst) { // bez yyy i eee: ten tekst trafia do opisu posta
-						tekstMowy = append(tekstMowy, s.Tekst)
+			oceny = append(oceny, ocenMowe(n, st, z.Praca, i, k))
+		}
+		// wypowiedź to nagrania z gęstą mową. Gdy opis wymusza film mówiony, a żadne nagranie nie spełnia progu,
+		// zostaje jedno z najgęstszą mową; rozmowy w tle na ujęciach roboczych nie są wypowiedzią.
+		naj := -1
+		for j, o := range oceny {
+			if o.Mowione {
+				mowione = append(mowione, o.Klip)
+			}
+			if o.Slow >= 4 && (naj < 0 || o.SlowNaSek > oceny[naj].SlowNaSek) {
+				naj = j
+			}
+		}
+		if len(mowione) == 0 && rodzaj == "mowa" && naj >= 0 {
+			mowione = append(mowione, oceny[naj].Klip)
+		}
+		// gdy w którymś z tych nagrań widać twarz do kamery, wypowiedzią są tylko nagrania z twarzą (reszta to rozmowy ekipy w tle)
+		if len(mowione) > 1 {
+			twarze := map[int]float64{}
+			najT := 0.0
+			for _, i := range mowione {
+				twarze[i], _, _ = udzialTwarzy(skany[i])
+				najT = math.Max(najT, twarze[i])
+			}
+			if najT >= 0.2 {
+				var zTwarza []int
+				for _, i := range mowione {
+					if twarze[i] >= 0.5*najT {
+						zTwarza = append(zTwarza, i)
 					}
+				}
+				mowione = zTwarza
+			}
+		}
+		jest := map[int]bool{}
+		for _, i := range mowione {
+			jest[i] = true
+		}
+		for _, o := range oceny {
+			if !jest[o.Klip] {
+				continue
+			}
+			for _, s := range o.Slowa {
+				if !toWtracenie(s.Tekst) { // bez yyy i eee: ten tekst trafia do opisu posta
+					tekstMowy = append(tekstMowy, s.Tekst)
 				}
 			}
 		}
@@ -486,7 +558,10 @@ func polecenieWykonaj(arg []string) {
 		if ust.BezNapisow {
 			a = append(a, "--bez-napisow")
 		}
-		if !dlugi {
+		switch {
+		case ust.DlugoscPodana:
+			a = append(a, "--maks", liczba(ust.Dlugosc))
+		case !dlugi:
 			a = append(a, "--maks", "60")
 		}
 		if zMuzyka {
@@ -496,14 +571,34 @@ func polecenieWykonaj(arg []string) {
 				w.Muzyka = u.Nazwa
 			}
 		}
+		// nagrania bez mowy do kamery: ich fragmenty wejdą jako przebitki
+		jestMowione := map[int]bool{}
+		for _, i := range mowione {
+			jestMowione[i] = true
+		}
+		var dodatkowe []string
+		for i, k := range klipy {
+			if !jestMowione[i] {
+				dodatkowe = append(dodatkowe, k.Plik)
+			}
+		}
+		if len(dodatkowe) > 0 {
+			lista := filepath.Join(z.Praca, "przebitki.json")
+			b, _ := json.Marshal(dodatkowe)
+			if os.WriteFile(lista, b, 0o644) == nil {
+				a = append(a, "--przebitki", lista)
+			}
+		}
 		for _, i := range mowione {
 			a = append(a, klipy[i].Plik)
 		}
 		poleceniaMontuj(a)
 		var m struct {
-			Czas   float64  `json:"czas"`
-			Raport []string `json:"raport"`
-			Tekst  string   `json:"tekst"`
+			Czas      float64     `json:"czas"`
+			Raport    []string    `json:"raport"`
+			Tekst     string      `json:"tekst"`
+			Przebitki []Przebitka `json:"przebitki"`
+			ZaOsoba   bool        `json:"zaOsoba"`
 		}
 		if b, err := os.ReadFile(filepath.Join(z.Praca, "mowa.json")); err == nil {
 			json.Unmarshal(b, &m)
@@ -513,7 +608,20 @@ func polecenieWykonaj(arg []string) {
 			w.Raport = append(w.Raport, zdanieRaportu(r))
 		}
 		if poza := len(klipy) - len(mowione); poza > 0 {
-			w.Raport = append(w.Raport, fmt.Sprintf("Nagrań bez mowy do kamery: %d. Na razie nie są wstawiane jako przebitki.", poza))
+			if len(m.Przebitki) > 0 {
+				dopasowane := 0
+				for _, p := range m.Przebitki {
+					if p.Slowo != "" {
+						dopasowane++
+					}
+				}
+				w.Raport = append(w.Raport, fmt.Sprintf("Przebitki: %d (z %d nagrań bez mowy do kamery), w tym dopasowane do wypowiadanych słów: %d.", len(m.Przebitki), poza, dopasowane))
+			} else {
+				w.Raport = append(w.Raport, fmt.Sprintf("Nagrań bez mowy do kamery: %d. Nie weszły jako przebitki (film za krótki albo ujęcia za słabe).", poza))
+			}
+		}
+		if m.ZaOsoba {
+			w.Raport = append(w.Raport, "Nagłówek stoi za osobą.")
 		}
 	} else {
 		w.Rodzaj = "ujecia"
