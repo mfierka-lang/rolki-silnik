@@ -332,6 +332,10 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 				z.Pliki, z.Opis, z.Popraw = stare.Pliki, stare.Opis, stare.Popraw
 				z.Format, z.Dlugosc, z.BezNapisow, z.BezPrzejsc, z.BezAnimacji = stare.Format, stare.Dlugosc, stare.BezNapisow, stare.BezPrzejsc, stare.BezAnimacji
 				z.BezMuzyki, z.Muzyka = stare.BezMuzyki, stare.Muzyka
+				var poprzedni Wynik
+				if wb, err := os.ReadFile(filepath.Join(s.dane, "zlecenia", filepath.Base(we.Poprzednie), "wynik.json")); err == nil && json.Unmarshal(wb, &poprzedni) == nil {
+					z.PoprzedniCzas = poprzedni.Czas
+				}
 			}
 		}
 		if t := strings.TrimSpace(we.Popraw); t != "" {

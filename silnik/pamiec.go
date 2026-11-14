@@ -12,12 +12,51 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 )
+
+var (
+	odciski   = map[string]string{}
+	odciskiMu sync.Mutex
+)
+
+// odciskPliku: krótki skrót treści nagrania (rozmiar + trzy wycinki po 256 KB: początek, środek, koniec).
+// Liczy się w ułamku sekundy także dla plików po kilka GB i nie zależy od nazwy ani położenia pliku.
+func odciskPliku(plik string) string {
+	fi, err := os.Stat(plik)
+	if err != nil {
+		return plik
+	}
+	klucz := fmt.Sprintf("%s|%d|%d", plik, fi.Size(), fi.ModTime().UnixNano())
+	odciskiMu.Lock()
+	defer odciskiMu.Unlock()
+	if o, jest := odciski[klucz]; jest {
+		return o
+	}
+	f, err := os.Open(plik)
+	if err != nil {
+		return klucz
+	}
+	defer f.Close()
+	h := sha1.New()
+	fmt.Fprintf(h, "%d|", fi.Size())
+	bufor := make([]byte, 256<<10)
+	for _, od := range []int64{0, fi.Size()/2 - int64(len(bufor))/2, fi.Size() - int64(len(bufor))} {
+		if od < 0 {
+			od = 0
+		}
+		n, _ := f.ReadAt(bufor, od)
+		h.Write(bufor[:n])
+	}
+	o := hex.EncodeToString(h.Sum(nil))
+	odciski[klucz] = o
+	return o
+}
 
 func transkrybujKlip(n *Narzedzia, k *Klip, wav, katalog, podpowiedz string) ([]Slowo, error) {
 	pamiec := ""
-	if fi, err := os.Stat(k.Plik); err == nil {
-		h := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d|%s|%s|v1", k.Plik, fi.Size(), fi.ModTime().UnixNano(), filepath.Base(n.Model), podpowiedz)))
+	if _, err := os.Stat(k.Plik); err == nil {
+		h := sha1.Sum([]byte(fmt.Sprintf("%s|%s|%s|v2", odciskPliku(k.Plik), filepath.Base(n.Model), podpowiedz)))
 		pamiec = filepath.Join(n.Dane, "mowa", hex.EncodeToString(h[:])+".json")
 		if b, err := os.ReadFile(pamiec); err == nil {
 			var slowa []Slowo

@@ -160,6 +160,14 @@
     var ul = $("lista-brakow");
     ul.innerHTML = "";
     (s.brak || []).forEach(function (b) { var li = document.createElement("li"); li.textContent = b; ul.appendChild(li); });
+    // silnik może już montować, brakuje tylko dodatków (np. po aktualizacji doszła nowa funkcja)
+    if ($("przyg-tytul")) {
+      $("przyg-tytul").innerHTML = s.gotowy ? "Silnik ma <em>nowe dodatki</em>" : "Silnik pobiera <em>narzędzia do montażu</em>";
+      $("przyg-opis").textContent = s.gotowy
+        ? "Do nowych funkcji potrzebne są dodatkowe pliki. Pobierają się raz. Możesz też pominąć i montować bez nich."
+        : "To zdarza się tylko raz na danym komputerze. Potem montaż startuje od razu.";
+    }
+    if (s.gotowy) stanSilnika("brak", "Silnik: nowe dodatki");
   }
   var zegarPrzyg = null;
   function pilnujPrzygotowania() {

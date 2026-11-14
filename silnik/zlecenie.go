@@ -27,13 +27,14 @@ type Zadanie struct {
 	Wyjscie string   `json:"wyjscie"`
 	Rodzaj  string   `json:"rodzaj"` // "" = rozpoznaj, "mowa", "ujecia"
 	// wybór na stronie
-	Format      string `json:"format"`  // "pion" (9:16, domyślnie) albo "poziom" (16:9)
-	Dlugosc     string `json:"dlugosc"` // "krotki" (do 60 s, domyślnie) albo "dlugi"
-	BezNapisow  bool   `json:"bezNapisow"`
-	BezPrzejsc  bool   `json:"bezPrzejsc"`
-	BezAnimacji bool   `json:"bezAnimacji"`
-	BezMuzyki   bool   `json:"bezMuzyki"`
-	Muzyka      string `json:"muzyka"` // "" = automatycznie, "dynamiczny", "spokojny" albo "styl:Nazwa"
+	Format        string  `json:"format"`  // "pion" (9:16, domyślnie) albo "poziom" (16:9)
+	Dlugosc       string  `json:"dlugosc"` // "krotki" (do 60 s, domyślnie) albo "dlugi"
+	BezNapisow    bool    `json:"bezNapisow"`
+	BezPrzejsc    bool    `json:"bezPrzejsc"`
+	BezAnimacji   bool    `json:"bezAnimacji"`
+	BezMuzyki     bool    `json:"bezMuzyki"`
+	PoprzedniCzas float64 `json:"poprzedniCzas,omitempty"` // długość filmu, który jest poprawiany (do „krócej” i „dłużej”)
+	Muzyka        string  `json:"muzyka"`                  // "" = automatycznie, "dynamiczny", "spokojny" albo "styl:Nazwa"
 }
 
 type Wynik struct {
@@ -65,6 +66,7 @@ type Ustawienia struct {
 	Pomin         int    // ile ujęć z początku pominąć („skróć początek”)
 	DlugoscPodana bool   // długość wpisana wprost w opisie (sekundy albo minuty)
 	Format        string // "pion" albo "poziom", gdy opis mówi o proporcjach
+	Kierunek      int    // ostatnia poprawka: -1 = krócej, 1 = dłużej (liczone od długości poprzedniego filmu)
 	Notatki       []string
 }
 
@@ -133,10 +135,16 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 			}
 		} else if ma(" krocej", " skroc ", " krotsz", " za dlug") && !ma(" poczat") {
 			u.Dlugosc *= 0.72
-			u.Notatki = append(u.Notatki, "Krótsza rolka.")
+			u.Notatki = append(u.Notatki, "Krótszy film.")
+			if nr > 0 && nr == len(wszystko)-1 {
+				u.Kierunek = -1
+			}
 		} else if ma(" dluzej", " wydluz", " dluzsz", " za krotk") {
 			u.Dlugosc *= 1.3
-			u.Notatki = append(u.Notatki, "Dłuższa rolka.")
+			u.Notatki = append(u.Notatki, "Dłuższy film.")
+			if nr > 0 && nr == len(wszystko)-1 {
+				u.Kierunek = 1
+			}
 		}
 		if ma(" poczat") && ma(" skroc", " krotsz", " utnij", " wytnij", " bez poczat", " pomin") {
 			u.Pomin++
@@ -390,6 +398,14 @@ func polecenieWykonaj(arg []string) {
 	if ust.Format != "" && ust.Format != z.Format && !(ust.Format == "pion" && z.Format == "") {
 		z.Format = ust.Format
 		ust.Notatki = append(ust.Notatki, map[string]string{"poziom": "Format z opisu: poziomy 16:9.", "pion": "Format z opisu: pionowy 9:16."}[ust.Format])
+	}
+	// „krócej” i „dłużej” w poprawce: względem tego, co naprawdę wyszło poprzednio
+	if z.PoprzedniCzas > 0 && ust.Kierunek != 0 {
+		ust.Dlugosc = math.Max(6, z.PoprzedniCzas*0.72)
+		if ust.Kierunek > 0 {
+			ust.Dlugosc = math.Min(600, z.PoprzedniCzas*1.3)
+		}
+		ust.DlugoscPodana = true
 	}
 	if ust.DlugoscPodana && ust.Dlugosc > 60 {
 		z.Dlugosc = "dlugi"
@@ -656,6 +672,9 @@ func polecenieWykonaj(arg []string) {
 		}
 		w.Czas, w.Hasla = u.Czas, u.Hasla
 		w.Raport = append(w.Raport, fmt.Sprintf("Wybrane ujęcia: %d z %d nagrań.", len(u.Ujecia), u.Nagran))
+		if (ust.DlugoscPodana || dlugi) && u.Czas < 0.8*ust.Dlugosc {
+			w.Raport = append(w.Raport, fmt.Sprintf("Film ma %.0f s zamiast ok. %.0f s: z tych nagrań nie da się wybrać więcej różnych, dobrych ujęć (ujęć nie powtarzam). Więcej nagrań da dłuższy film.", u.Czas, ust.Dlugosc))
+		}
 		if u.Muzyka != nil {
 			w.Muzyka = u.Muzyka.Nazwa
 		}

@@ -339,8 +339,8 @@ func podobienstwo(a, b []byte, w int) float64 {
 // tego samego nagrania nie kosztuje nic. To zalążek biblioteki przebitek.
 func skanuj(n *Narzedzia, k *Klip) (*Skan, error) {
 	pamiec := ""
-	if fi, err := os.Stat(k.Plik); err == nil {
-		h := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d|v4", k.Plik, fi.Size(), fi.ModTime().UnixNano())))
+	if _, err := os.Stat(k.Plik); err == nil {
+		h := sha1.Sum([]byte(fmt.Sprintf("%s|v5", odciskPliku(k.Plik))))
 		pamiec = filepath.Join(n.Dane, "skany", hex.EncodeToString(h[:])+".json")
 		if b, err := os.ReadFile(pamiec); err == nil {
 			sk := &Skan{}

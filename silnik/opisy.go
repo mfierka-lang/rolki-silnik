@@ -62,11 +62,7 @@ func klatkaUjecia(n *Narzedzia, k *Klip, o Okno, st *Styl) ([]byte, error) {
 }
 
 func plikOpisu(n *Narzedzia, k *Klip, o Okno, st *Styl) string {
-	znak := k.Plik
-	if fi, err := os.Stat(k.Plik); err == nil {
-		znak = fmt.Sprintf("%s|%d|%d", k.Plik, fi.Size(), fi.ModTime().UnixNano())
-	}
-	h := sha1.Sum([]byte(fmt.Sprintf("%s|%.1f|%.2f|%dx%d|v2", znak, (o.Od+o.Do)/2, o.KadrX, st.Szer, st.Wys)))
+	h := sha1.Sum([]byte(fmt.Sprintf("%s|%.1f|%.2f|%dx%d|v3", odciskPliku(k.Plik), (o.Od+o.Do)/2, o.KadrX, st.Szer, st.Wys)))
 	return filepath.Join(n.Dane, "opisy", hex.EncodeToString(h[:])+".json")
 }
 

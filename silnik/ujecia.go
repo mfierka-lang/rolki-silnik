@@ -238,6 +238,17 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		}
 		okna = append(okna, oknaKlipu(i, k, skany[i], *ujecie, ile, odstep)...)
 	}
+	// mało materiału względem zamówionej długości: gęstsze szukanie w każdym nagraniu (okna jedno za drugim);
+	// prawie takie same kadry i tak odpadną przy wyborze, więc film nie dostanie powtórek
+	gesto := false
+	if potrzeba := int(math.Round(*dlugosc / *ujecie)); len(okna)*10 < potrzeba*13 {
+		gesto = true
+		okna = nil
+		for i, k := range klipy {
+			ile := max(1, min(12, int((k.Czas-1.2)/(*ujecie+0.4))))
+			okna = append(okna, oknaKlipu(i, k, skany[i], *ujecie, ile, *ujecie+0.4)...)
+		}
+	}
 	if tylkoSkan {
 		fmt.Printf("%-34s %7s %6s | okna: od-do (drgania, prędkość, ostrość, ruch w kadrze, kadr X)\n", "nagranie", "czas", "skan")
 		for i, k := range klipy {
@@ -353,6 +364,9 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	rundy := 3
 	if *dlugosc > 60 {
 		rundy = 8
+	}
+	if gesto {
+		rundy = 12
 	}
 	bezNajazdu = *najazdWyl
 	for runda := 1; runda <= rundy && len(wybrane) < ile; runda++ {
