@@ -1,0 +1,242 @@
+{
+  "nazwa": "Zbliżka A (wybrany 14.11.2026: ciemna karta, słowo-klucz kursywą, napisy drukowane warstwami)",
+  "szer": 1080,
+  "wys": 1920,
+  "klatki": 30,
+  "napisy": {
+    "tekst": {
+      "rodzina": "Bricolage Grotesque",
+      "plik": "fonty/BricolageGrotesque-Bold.ttf",
+      "rozmiar": 92,
+      "kolor": "#F3EFE7",
+      "gruby": true
+    },
+    "akcent": {
+      "rodzina": "Instrument Serif",
+      "plik": "fonty/InstrumentSerif-Italic.ttf",
+      "rozmiar": 106,
+      "kolor": "#FF5B2E",
+      "kursywa": true
+    },
+    "karta": {
+      "wlaczona": true,
+      "kolor": "#0A0A0B",
+      "krycie": 0.88,
+      "promien": 26,
+      "odstepX": 34,
+      "odstepY": 20,
+      "dy": 4
+    },
+    "y": 0.66,
+    "maksSlow": 3,
+    "maksSzer": 860,
+    "wersaliki": false,
+    "wejscieMs": 170,
+    "rodzaj": "karta",
+    "wejscie": "druk",
+    "skalaHasel": 1.3
+  },
+  "kadr": {
+    "zblizenia": [
+      1,
+      1.12
+    ],
+    "y": 0.38
+  },
+  "ciecie": {
+    "pauzaWFrazie": 0.3,
+    "maksPauza": 0.28,
+    "zapasPrzed": 0.08,
+    "zapasPo": 0.15
+  },
+  "dzwiek": {
+    "glosnoscLUFS": -14,
+    "muzykaPoziom": 0.22,
+    "odszumianie": 8,
+    "muzykaWyciszMs": 600
+  },
+  "slownik": [
+    "nfc",
+    "magnes",
+    "brelok",
+    "druk",
+    "3d",
+    "uv",
+    "nadruk",
+    "telefon",
+    "logo",
+    "menu",
+    "opini",
+    "google",
+    "klient",
+    "wycen",
+    "chip",
+    "zbli",
+    "kolor",
+    "restaurac",
+    "wizytówk",
+    "statystyk"
+  ],
+  "podpowiedz": "Zbliżka, zblizka.pl, NFC, brelok NFC, magnes NFC, nadruk UV, druk 3D, chip NFC, opinie Google.",
+  "hasla": [
+    {
+      "gdy": [
+        "drukark",
+        "dysz",
+        "filament",
+        "=druk 3d"
+      ],
+      "napis": "Druk *3D*"
+    },
+    {
+      "gdy": [
+        "nadruk",
+        "=uv"
+      ],
+      "napis": "Nadruk *UV*"
+    },
+    {
+      "gdy": [
+        "telefon",
+        "smartfon"
+      ],
+      "napis": "Przyłóż *telefon*"
+    },
+    {
+      "gdy": [
+        "magnes",
+        "lodowk"
+      ],
+      "napis": "Magnes *z NFC*"
+    },
+    {
+      "gdy": [
+        "brelok",
+        "brelocz",
+        "kluczyk",
+        "kluczowk",
+        "zawieszk"
+      ],
+      "napis": "Brelok *z NFC*"
+    },
+    {
+      "gdy": [
+        "wizytowk"
+      ],
+      "napis": "Wizytówka *NFC*"
+    },
+    {
+      "gdy": [
+        "opini",
+        "gwiazdk"
+      ],
+      "napis": "Opinie *jednym ruchem*"
+    },
+    {
+      "gdy": [
+        "=logo",
+        "logotyp"
+      ],
+      "napis": "Twoje *logo*"
+    },
+    {
+      "gdy": [
+        "paczk",
+        "karton",
+        "pudelk"
+      ],
+      "napis": "Gotowe *do wysyłki*"
+    }
+  ],
+  "wezwanie": "Wycena na *zblizka.pl*",
+  "post": {
+    "kontekst": "Marka to Zbliżka (zblizka.pl): breloki, magnesy, wizytówki i stojaki z chipem NFC, robione drukiem 3D i nadrukiem UV, na zamówienie dla firm.",
+    "wezwanie": "Bezpłatna wycena i projekt: zblizka.pl",
+    "hashtagi": [
+      "#zblizka",
+      "#gadżetyNFC",
+      "#gadżetyreklamowe"
+    ],
+    "hashtagiTematy": [
+      {
+        "gdy": [
+          "magnes"
+        ],
+        "tagi": [
+          "#magnesNFC",
+          "#magnesyreklamowe"
+        ]
+      },
+      {
+        "gdy": [
+          "brelok"
+        ],
+        "tagi": [
+          "#brelokNFC",
+          "#brelokireklamowe"
+        ]
+      },
+      {
+        "gdy": [
+          "wizytowk"
+        ],
+        "tagi": [
+          "#wizytówkaNFC"
+        ]
+      },
+      {
+        "gdy": [
+          "opini",
+          "google",
+          "stojak"
+        ],
+        "tagi": [
+          "#opinieGoogle"
+        ]
+      },
+      {
+        "gdy": [
+          "druk 3d",
+          "drukark",
+          "drukuj",
+          "3d"
+        ],
+        "tagi": [
+          "#druk3D"
+        ]
+      },
+      {
+        "gdy": [
+          "nadruk",
+          "uv"
+        ],
+        "tagi": [
+          "#nadrukUV"
+        ]
+      },
+      {
+        "gdy": [
+          "restaurac",
+          "kawiarn",
+          "menu",
+          "gastronom"
+        ],
+        "tagi": [
+          "#gastronomia",
+          "#marketingrestauracji"
+        ]
+      },
+      {
+        "gdy": [
+          "logo",
+          "firm",
+          "marketing",
+          "reklam"
+        ],
+        "tagi": [
+          "#marketingdlafirm"
+        ]
+      }
+    ]
+  }
+}

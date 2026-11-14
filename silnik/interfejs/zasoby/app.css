@@ -1,0 +1,147 @@
+/* Interfejs montażu rolek. Kolory marki w jednym miejscu: zmiana palety to zmiana tych kilku wartości. */
+@font-face{font-family:"Figtree";font-weight:400;font-display:swap;src:url(figtree-latin-ext-400.woff2) format("woff2");unicode-range:U+0100-02BA,U+1E00-1E9F,U+20A0-20C0}
+@font-face{font-family:"Figtree";font-weight:400;font-display:swap;src:url(figtree-latin-400.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F,U+20AC}
+@font-face{font-family:"Figtree";font-weight:600;font-display:swap;src:url(figtree-latin-ext-600.woff2) format("woff2");unicode-range:U+0100-02BA,U+1E00-1E9F,U+20A0-20C0}
+@font-face{font-family:"Figtree";font-weight:600;font-display:swap;src:url(figtree-latin-600.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F,U+20AC}
+@font-face{font-family:"Bricolage";font-weight:700;font-display:swap;src:url(bricolage-grotesque-latin-ext-700.woff2) format("woff2");unicode-range:U+0100-02BA,U+1E00-1E9F,U+20A0-20C0}
+@font-face{font-family:"Bricolage";font-weight:700;font-display:swap;src:url(bricolage-grotesque-latin-700.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F,U+20AC}
+@font-face{font-family:"Instrument";font-style:italic;font-weight:400;font-display:swap;src:url(instrument-serif-latin-ext-400-italic.woff2) format("woff2");unicode-range:U+0100-02BA,U+1E00-1E9F,U+20A0-20C0}
+@font-face{font-family:"Instrument";font-style:italic;font-weight:400;font-display:swap;src:url(instrument-serif-latin-400-italic.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F,U+20AC}
+
+:root{
+  --tlo:#0A0A0B; --tlo-2:#131315; --tlo-3:#1B1B1E; --linia:#2A2A2E; --linia-2:#3A3A40;
+  --tekst:#F3EFE7; --tekst-2:#B5B0A6; --tekst-3:#807B72;
+  --akcent:#FF5B2E; --akcent-2:#FF7A54; --na-akcencie:#0A0A0B;
+  --dobrze:#5BD38C; --zle:#FF6B6B;
+  --r:18px; --r-m:12px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--tlo);color:var(--tekst);
+  font:400 16px/1.55 "Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+  background-image:radial-gradient(900px 480px at 82% -8%,rgba(255,91,46,.13),transparent 62%),radial-gradient(700px 420px at -6% 104%,rgba(255,91,46,.07),transparent 60%)}
+[hidden]{display:none!important}
+h1{font:700 clamp(28px,4.4vw,46px)/1.06 "Bricolage","Figtree",sans-serif;letter-spacing:-.02em;margin:0 0 18px;text-wrap:balance}
+h1 em{font:italic 400 1.1em/1 "Instrument",Georgia,serif;color:var(--akcent);letter-spacing:0}
+h2{font:600 15px/1.3 "Figtree",sans-serif;margin:0;color:var(--tekst)}
+p{margin:0 0 14px}
+.lead{font-size:18px;color:var(--tekst-2);max-width:60ch}
+.drobne{font-size:14px;color:var(--tekst-3)}
+.nad{font:600 12px/1 "Figtree",sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--akcent);margin:0 0 14px}
+.nad-blad{color:var(--zle)}
+
+.gora{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px clamp(16px,4vw,40px);border-bottom:1px solid var(--linia)}
+.marka{display:flex;align-items:center;gap:14px;text-decoration:none;color:inherit}
+.marka img{display:block;height:30px;width:auto}
+.marka-dzial{font:600 13px/1 "Figtree",sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--tekst-2);padding-left:14px;border-left:1px solid var(--linia-2)}
+.gora-prawo{display:flex;align-items:center;gap:14px;font-size:14px;color:var(--tekst-2)}
+.gora-prawo a{color:var(--tekst-2)}
+.stan{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--linia);border-radius:99px;background:var(--tlo-2);font-size:13px;white-space:nowrap}
+.stan i{width:8px;height:8px;border-radius:50%;background:var(--tekst-3)}
+.stan b{font-weight:600}
+.stan[data-stan="gotowy"] i{background:var(--dobrze);box-shadow:0 0 0 4px rgba(91,211,140,.16)}
+.stan[data-stan="praca"] i{background:var(--akcent);animation:puls 1.1s ease-in-out infinite}
+.stan[data-stan="brak"] i{background:var(--zle)}
+@keyframes puls{50%{opacity:.35}}
+
+.scena{flex:1;width:100%;max-width:1040px;margin:0 auto;padding:clamp(28px,6vw,64px) clamp(16px,4vw,40px) 48px}
+.ekran{animation:wejscie .35s ease-out both}
+@keyframes wejscie{from{opacity:0;transform:translateY(10px)}}
+.rzad{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:22px}
+.rzad-koniec{justify-content:space-between}
+.rzad-miedzy{justify-content:space-between;margin-top:12px}
+.rzad .drobne{margin:0}
+
+.btn{appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 20px;border-radius:99px;border:1px solid var(--linia-2);
+  background:transparent;color:var(--tekst);font:600 15px/1 "Figtree",sans-serif;text-decoration:none;cursor:pointer;transition:background .15s,border-color .15s,transform .15s,opacity .15s}
+.btn:hover{border-color:var(--tekst-2);background:var(--tlo-3)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.38;cursor:not-allowed}
+.btn-glowny{background:var(--akcent);border-color:var(--akcent);color:var(--na-akcencie)}
+.btn-glowny:hover{background:var(--akcent-2);border-color:var(--akcent-2)}
+.btn-duzy{min-height:54px;padding:0 34px;font-size:17px}
+.link{appearance:none;background:none;border:0;padding:0;color:var(--akcent);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.link:hover{color:var(--akcent-2)}
+:focus-visible{outline:2px solid var(--akcent);outline-offset:3px}
+
+.strefa{margin-top:8px;border:1.5px dashed var(--linia-2);border-radius:var(--r);background:var(--tlo-2);padding:38px 20px;text-align:center;color:var(--tekst-2);cursor:pointer;transition:border-color .15s,background .15s}
+.strefa:hover,.strefa.nad-strefa{border-color:var(--akcent);background:#18110e;color:var(--tekst)}
+.strefa p{margin:6px 0 0}
+.strefa b{color:var(--tekst);font-size:18px}
+.strefa svg{color:var(--akcent)}
+
+.pliki{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:8px}
+.pliki li{display:flex;align-items:center;gap:12px;padding:10px 12px 10px 14px;border:1px solid var(--linia);border-radius:var(--r-m);background:var(--tlo-2);position:relative;overflow:hidden}
+.pliki .nazwa{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.pliki .rozmiar{color:var(--tekst-3);font-size:14px;white-space:nowrap}
+.pliki .usun{appearance:none;border:0;background:none;color:var(--tekst-3);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:20px;line-height:1}
+.pliki .usun:hover{background:var(--tlo-3);color:var(--tekst)}
+.pliki li .wgrywanie{position:absolute;left:0;bottom:0;height:2px;background:var(--akcent);width:0;transition:width .2s}
+.pliki li.blad{border-color:var(--zle)}
+
+.pole{display:block;margin-top:22px}
+.pole span{display:block;font:600 14px/1 "Figtree",sans-serif;margin-bottom:9px;color:var(--tekst-2)}
+textarea{width:100%;resize:vertical;min-height:64px;padding:14px 16px;border-radius:var(--r-m);border:1px solid var(--linia-2);background:var(--tlo-2);color:var(--tekst);font:400 16px/1.5 "Figtree",sans-serif}
+textarea::placeholder{color:var(--tekst-3)}
+textarea:focus{outline:none;border-color:var(--akcent)}
+
+.pasek{height:8px;border-radius:99px;background:var(--tlo-3);overflow:hidden;margin-top:26px}
+.pasek-duzy{height:12px}
+.pasek i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--akcent),var(--akcent-2));transition:width .5s ease-out;position:relative}
+.pasek i::after{content:"";position:absolute;right:0;top:-6px;bottom:-6px;width:3px;background:#fff;box-shadow:0 0 12px 3px rgba(255,122,84,.9);border-radius:2px}
+.etap{margin:0;font-weight:600}
+.etap-czas{color:var(--tekst-3);font-variant-numeric:tabular-nums}
+.ekran-praca .drobne{margin-top:18px}
+
+.ekran-wynik{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:clamp(24px,5vw,56px);align-items:start}
+.wynik-film{position:sticky;top:20px}
+.wynik-film video{display:block;width:100%;aspect-ratio:9/16;border-radius:var(--r);background:#000;border:1px solid var(--linia)}
+.blok{margin-top:24px;padding-top:20px;border-top:1px solid var(--linia)}
+.blok-glowa{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.opis-posta{white-space:pre-wrap;margin:0;color:var(--tekst-2);background:var(--tlo-2);border:1px solid var(--linia);border-radius:var(--r-m);padding:14px 16px;font-size:15px}
+details.blok summary{cursor:pointer;font-weight:600;color:var(--tekst-2);list-style:none}
+details.blok summary::before{content:"+ ";color:var(--akcent)}
+details.blok[open] summary::before{content:"- "}
+.raport{margin:12px 0;padding-left:18px;color:var(--tekst-2);font-size:15px}
+.raport li{margin:4px 0}
+.blok .pole{margin-top:0}
+
+.kroki{margin:26px 0 0;padding:0;list-style:none;counter-reset:k;display:grid;gap:10px;max-width:60ch}
+.kroki li{counter-increment:k;display:flex;gap:14px;align-items:baseline;color:var(--tekst-2)}
+.kroki li::before{content:counter(k);flex:none;width:28px;height:28px;border-radius:50%;border:1px solid var(--linia-2);display:grid;place-items:center;font:600 13px/1 "Figtree",sans-serif;color:var(--akcent)}
+.kroki b{color:var(--tekst)}
+.lista-brakow{margin:6px 0 0;padding:0;list-style:none;color:var(--tekst-2);display:grid;gap:6px}
+.lista-brakow li::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--akcent);margin-right:10px;vertical-align:middle}
+#ekran-przygotowanie .drobne{margin-top:14px}
+
+.stopka{display:flex;justify-content:space-between;gap:16px;padding:16px clamp(16px,4vw,40px);border-top:1px solid var(--linia);font-size:13px;color:var(--tekst-3)}
+
+/* logowanie i strony panelu */
+.karta{max-width:440px;margin:0 auto;padding:30px;border:1px solid var(--linia);border-radius:var(--r);background:var(--tlo-2)}
+.karta h1{font-size:30px}
+.formularz{display:grid;gap:16px;margin-top:8px}
+.formularz label{display:grid;gap:8px;font:600 14px/1 "Figtree",sans-serif;color:var(--tekst-2)}
+.formularz input{height:48px;padding:0 14px;border-radius:var(--r-m);border:1px solid var(--linia-2);background:var(--tlo);color:var(--tekst);font:400 16px/1 "Figtree",sans-serif}
+.formularz input:focus{outline:none;border-color:var(--akcent)}
+.komunikat{padding:12px 14px;border-radius:var(--r-m);border:1px solid var(--linia-2);background:var(--tlo-3);font-size:15px;margin-bottom:16px}
+.komunikat.blad{border-color:var(--zle);color:#ffd0d0}
+.komunikat.ok{border-color:var(--dobrze);color:#d2f5e0}
+.tabela{width:100%;border-collapse:collapse;margin-top:14px;font-size:15px}
+.tabela th,.tabela td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--linia)}
+.tabela th{color:var(--tekst-3);font-weight:600;font-size:13px}
+
+@media (max-width:760px){
+  .ekran-wynik{grid-template-columns:1fr}
+  .wynik-film{position:static;max-width:280px;margin:0 auto}
+  .marka-dzial{display:none}
+  .rzad-koniec{flex-direction:column-reverse;align-items:stretch}
+  .rzad-koniec .btn{width:100%}
+  .stopka{flex-direction:column;gap:4px}
+  .strefa{padding:28px 14px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.karta-szeroka{max-width:720px}
+.odstep{margin-top:24px}
+.wyloguj{display:inline;margin:0}
+.gora-prawo .link{font-weight:600;font-size:14px}
+.tabela form{display:inline}

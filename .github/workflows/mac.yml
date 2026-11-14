@@ -1,0 +1,116 @@
+# Test silnika na Macu w chmurze GitHuba (Apple Silicon), dokładnie tą drogą, którą przejdzie użytkownik:
+# silnik sam pobiera narzędzia i modele (instalator), potem montuje dwie rolki próbne i uruchamia serwer z interfejsem.
+name: Mac
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      DANE: ${{ github.workspace }}/dane
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: silnik/go.mod
+          cache: false
+
+      - name: Maszyna
+        run: |
+          sysctl -n machdep.cpu.brand_string
+          sw_vers | tr '\n' ' '
+          echo "pamięć: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
+
+      - name: Pamięć podręczna modeli
+        uses: actions/cache@v4
+        with:
+          path: dane/modele
+          key: modele-v1
+
+      - name: Silnik (vet + budowa)
+        run: |
+          mkdir -p "$DANE" wyniki
+          cd silnik
+          go vet ./...
+          go build -o "$DANE/montaz" .
+          "$DANE/montaz" wersja
+          codesign -dv "$DANE/montaz" 2>&1 | grep -E "Signature|flags" || true
+
+      - name: Instalator (silnik sam pobiera narzędzia i modele)
+        run: |
+          # ffmpeg z systemu nie może pomagać: sprawdzamy to, co pobiera instalator
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          time "$DANE/montaz" instaluj --dane "$DANE" | grep -v "Pobieram" || true
+          ls "$DANE/bin" "$DANE/whisper" | tr '\n' ' '; echo
+          "$DANE/bin/ffmpeg" -hide_banner -version | head -1
+          "$DANE/bin/ffprobe" -hide_banner -version | head -1
+          "$DANE/whisper/whisper-cli" --help 2>&1 | head -2
+          "$DANE/llama/llama-server" --version 2>&1 | head -2
+
+      - name: Rolka mówiona
+        run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          mkdir -p "$DANE/zlecenia/mowa"
+          cat > "$DANE/zlecenia/mowa/zadanie.json" <<EOF
+          {"pliki": ["$GITHUB_WORKSPACE/probki/test-mowa-ujecia.mp4"], "opis": "rolka mówiona o magnesach NFC dla restauracji", "dane": "$DANE", "praca": "$DANE/zlecenia/mowa"}
+          EOF
+          time "$DANE/montaz" wykonaj "$DANE/zlecenia/mowa/zadanie.json" > "$DANE/zlecenia/mowa/postep.txt" 2> "$DANE/zlecenia/mowa/bledy.txt" || true
+          tail -2 "$DANE/zlecenia/mowa/postep.txt"; tail -c 1500 "$DANE/zlecenia/mowa/bledy.txt"
+          cat "$DANE/zlecenia/mowa/wynik.json"
+          cp "$DANE/zlecenia/mowa/rolka.mp4" wyniki/mac-rolka-mowiona.mp4
+          cp "$DANE/zlecenia/mowa/wynik.json" wyniki/mac-rolka-mowiona.json
+
+      - name: Rolka z ujęć
+        if: always()
+        run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          mkdir -p "$DANE/zlecenia/ujecia"
+          cat > "$DANE/zlecenia/ujecia/zadanie.json" <<EOF
+          {"pliki": ["$GITHUB_WORKSPACE/probki/test-mowa-ujecia.mp4"], "opis": "breloki i magnesy NFC, same ujęcia, dynamicznie", "dane": "$DANE", "praca": "$DANE/zlecenia/ujecia"}
+          EOF
+          time "$DANE/montaz" wykonaj "$DANE/zlecenia/ujecia/zadanie.json" > "$DANE/zlecenia/ujecia/postep.txt" 2> "$DANE/zlecenia/ujecia/bledy.txt" || true
+          tail -2 "$DANE/zlecenia/ujecia/postep.txt"; tail -c 1500 "$DANE/zlecenia/ujecia/bledy.txt"
+          cat "$DANE/zlecenia/ujecia/wynik.json"
+          cp "$DANE/zlecenia/ujecia/rolka.mp4" wyniki/mac-rolka-ujecia.mp4
+          cp "$DANE/zlecenia/ujecia/wynik.json" wyniki/mac-rolka-ujecia.json
+
+      - name: Serwer lokalny i montaż przez interfejs (tak jak ze strony)
+        if: always()
+        run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          "$DANE/montaz" serwer --dane "$DANE" --okno=false > wyniki/serwer.log 2>&1 &
+          sleep 3
+          curl -s http://127.0.0.1:47615/api/stan; echo
+          curl -s -o /dev/null -w "interfejs: %{http_code}\n" http://127.0.0.1:47615/
+          curl -s -o /dev/null -w "obca strona: %{http_code}\n" -H "Origin: https://example.com" http://127.0.0.1:47615/api/stan
+          ID=$(curl -s -X POST --data-binary @probki/test-mowa-ujecia.mp4 "http://127.0.0.1:47615/api/wrzuc?nazwa=proba.mp4" | sed -E 's/.*"id":"([^"]+)".*/\1/')
+          printf '{"pliki":["%s"],"opis":"rolka mówiona o magnesach NFC"}' "$ID" > zlec.json
+          curl -s -X POST -H "Content-Type: application/json" --data-binary @zlec.json http://127.0.0.1:47615/api/montuj; echo
+          for i in $(seq 1 60); do sleep 4; S=$(curl -s http://127.0.0.1:47615/api/postep); echo "$S" | grep -q '"stan":"praca"' || break; done
+          echo "$S" | cut -c1-600
+          ZL=$(echo "$S" | sed -E 's/.*"id":"([^"]+)".*/\1/')
+          curl -s -o wyniki/mac-rolka-z-interfejsu.mp4 -w "pobranie rolki: %{http_code} %{size_download} B\n" "http://127.0.0.1:47615/api/rolka/$ZL/pobierz"
+          curl -s -X POST http://127.0.0.1:47615/api/zamknij; echo
+
+      - name: Dzienniki
+        if: always()
+        run: |
+          for d in mowa ujecia; do
+            for f in "$DANE/zlecenia/$d"/*.log "$DANE/zlecenia/$d"/bledy.txt "$DANE/zlecenia/$d"/postep.txt; do
+              [ -f "$f" ] && cp "$f" "wyniki/$d-$(basename "$f")" || true
+            done
+          done
+          ls -la wyniki
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-wyniki
+          path: wyniki
+          retention-days: 14

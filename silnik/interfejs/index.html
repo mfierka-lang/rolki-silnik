@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Montaż rolek - Zbliżka</title>
+<link rel="icon" href="zasoby/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="zasoby/app.css">
+</head>
+<body>
+<header class="gora">
+  <a class="marka" href="./" aria-label="Zbliżka, montaż rolek">
+    <img src="zasoby/logo.svg" alt="Zbliżka" width="126" height="32">
+    <span class="marka-dzial">Montaż rolek</span>
+  </a>
+  <div class="gora-prawo">
+    <span class="stan" id="stan-silnika" data-stan="szukam"><i></i><b>Szukam silnika</b></span>
+    <span id="gora-konto"></span>
+  </div>
+</header>
+
+<main class="scena" id="scena" aria-live="polite">
+
+  <!-- 1. brak silnika na tym komputerze (tylko na stronie) -->
+  <section class="ekran" id="ekran-brak" hidden>
+    <p class="nad">Pierwsze uruchomienie</p>
+    <h1>Na tym komputerze trzeba raz <em>zainstalować silnik</em></h1>
+    <p class="lead">Montaż dzieje się na Twoim komputerze, a nagrania nigdzie nie są wysyłane. Dlatego potrzebny jest mały program, który instaluje się raz.</p>
+    <div class="rzad">
+      <a class="btn btn-glowny" id="pobierz-silnik" href="#" download>Pobierz silnik</a>
+      <a class="btn" id="uruchom-silnik" href="zblizka-montaz://start">Mam już silnik: uruchom</a>
+    </div>
+    <ol class="kroki">
+      <li><b>Pobierz</b> plik i otwórz go.</li>
+      <li id="krok-system">System zapyta, czy na pewno. Potwierdź.</li>
+      <li><b>Wróć tutaj.</b> Strona sama wykryje silnik.</li>
+    </ol>
+    <p class="drobne" id="brak-podpowiedz"></p>
+  </section>
+
+  <!-- 2. silnik jest, ale brakuje mu programów pomocniczych -->
+  <section class="ekran" id="ekran-przygotowanie" hidden>
+    <p class="nad">Jednorazowo</p>
+    <h1>Silnik pobiera <em>narzędzia do montażu</em></h1>
+    <p class="lead">To zdarza się tylko raz na danym komputerze. Potem montaż startuje od razu.</p>
+    <ul class="lista-brakow" id="lista-brakow"></ul>
+    <div class="pasek"><i id="pasek-przyg"></i></div>
+    <p class="etap" id="etap-przyg">Czekam na start</p>
+    <div class="rzad"><button class="btn btn-glowny" id="start-przyg">Pobierz i przygotuj</button><button class="link" id="pomin-przyg" type="button" hidden>Pomiń na razie</button></div>
+  </section>
+
+  <!-- 3. start: nagrania i opis -->
+  <section class="ekran" id="ekran-start" hidden>
+    <p class="nad">Nowa rolka</p>
+    <h1>Wrzuć nagrania, napisz <em>o czym</em>, kliknij Montuj</h1>
+    <div class="strefa" id="strefa" tabindex="0" role="button" aria-label="Dodaj nagrania">
+      <div class="strefa-tresc">
+        <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true"><path d="M24 32V10m0 0-8 8m8-8 8 8M8 30v6a4 4 0 0 0 4 4h24a4 4 0 0 0 4-4v-6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p><b>Przeciągnij tu nagrania</b></p>
+        <p class="drobne">albo <button class="link" id="wybierz" type="button">wybierz z dysku</button></p>
+      </div>
+      <input type="file" id="pole-plikow" accept="video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm,.mts" multiple hidden>
+    </div>
+    <ul class="pliki" id="pliki"></ul>
+    <label class="pole">
+      <span>O czym ma być rolka?</span>
+      <textarea id="opis" rows="2" maxlength="400" placeholder="np. rolka o magnesach NFC dla restauracji, dynamicznie"></textarea>
+    </label>
+    <div class="rzad rzad-koniec">
+      <p class="drobne" id="start-uwaga">Nagrania zostają na tym komputerze.</p>
+      <button class="btn btn-glowny btn-duzy" id="montuj" disabled>Montuj</button>
+    </div>
+  </section>
+
+  <!-- 4. praca -->
+  <section class="ekran ekran-praca" id="ekran-praca" hidden>
+    <p class="nad">Montaż trwa</p>
+    <h1 id="praca-tytul">Składam <em>rolkę</em></h1>
+    <div class="pasek pasek-duzy"><i id="pasek"></i></div>
+    <div class="rzad rzad-miedzy">
+      <p class="etap" id="etap">Zaczynam</p>
+      <p class="etap etap-czas" id="czas-pracy">0:00</p>
+    </div>
+    <p class="drobne">Możesz zostawić tę kartę otwartą i robić coś innego. Komputer nie uśnie w trakcie.</p>
+    <div class="rzad"><button class="btn" id="przerwij">Przerwij</button></div>
+  </section>
+
+  <!-- 5. wynik -->
+  <section class="ekran ekran-wynik" id="ekran-wynik" hidden>
+    <div class="wynik-film">
+      <video id="film" controls playsinline preload="metadata"></video>
+    </div>
+    <div class="wynik-bok">
+      <p class="nad" id="wynik-nad">Gotowe</p>
+      <h1>Rolka <em>gotowa</em></h1>
+      <p class="lead" id="wynik-podsumowanie"></p>
+      <div class="rzad">
+        <a class="btn btn-glowny btn-duzy" id="pobierz" href="#">Pobierz</a>
+        <button class="btn" id="pokaz-folder" type="button">Pokaż w folderze</button>
+      </div>
+      <div class="blok" id="blok-opis" hidden>
+        <div class="blok-glowa"><h2>Opis do wklejenia</h2><button class="link" id="kopiuj-opis" type="button">Kopiuj</button></div>
+        <p class="opis-posta" id="opis-posta"></p>
+      </div>
+      <details class="blok" id="blok-co" hidden>
+        <summary>Co zrobił automat</summary>
+        <ul class="raport" id="raport"></ul>
+        <p class="drobne" id="tekst-mowy"></p>
+      </details>
+      <div class="blok">
+        <label class="pole">
+          <span>Popraw</span>
+          <textarea id="popraw" rows="2" maxlength="300" placeholder="np. krócej, większe napisy, bez nagłówka, nagłówek: Magnesy NFC / dla restauracji"></textarea>
+        </label>
+        <div class="rzad rzad-miedzy">
+          <button class="link" id="nowa" type="button">Nowa rolka</button>
+          <button class="btn" id="popraw-btn" type="button" disabled>Popraw rolkę</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. błąd -->
+  <section class="ekran" id="ekran-blad" hidden>
+    <p class="nad nad-blad">Nie udało się</p>
+    <h1>Montaż <em>przerwany</em></h1>
+    <p class="lead" id="blad-tekst"></p>
+    <div class="rzad"><button class="btn btn-glowny" id="blad-wroc">Wróć do nagrań</button></div>
+  </section>
+
+</main>
+
+<footer class="stopka">
+  <span>Zbliżka, narzędzie wewnętrzne</span>
+  <span id="wersja-silnika"></span>
+</footer>
+<script src="zasoby/app.js"></script>
+</body>
+</html>
