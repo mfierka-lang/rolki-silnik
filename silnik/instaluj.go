@@ -121,8 +121,12 @@ func brakujaceSkladniki(dane string) ([]Skladnik, bool) {
 	return brak, wymagane
 }
 
-// stacNaDuzyModel: duży model piszący tylko tam, gdzie jest na niego miejsce (12 GB wolnego dysku).
+// stacNaDuzyModel: duży model piszący tylko tam, gdzie jest na niego miejsce (12 GB wolnego dysku) i pamięć
+// (co najmniej 12 GB RAM; na słabszych komputerach teksty pochodzą z szablonu marki, a montaż jest szybszy).
 func stacNaDuzyModel(dane string) bool {
+	if ram, ok := pamiecRAM(); ok && ram < 11<<30 {
+		return false
+	}
 	wolne, ok := wolneMiejsce(dane)
 	return !ok || wolne >= 12<<30
 }

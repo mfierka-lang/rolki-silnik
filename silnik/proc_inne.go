@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -43,6 +45,19 @@ func wolneMiejsce(katalog string) (int64, bool) {
 
 // zarejestrujAdres: na macOS adres zblizka-montaz:// jest zapisany w pliku Info.plist aplikacji.
 func zarejestrujAdres(program string) {}
+
+// pamiecRAM: ile pamięci ma komputer (bajty); na macOS z sysctl.
+func pamiecRAM() (int64, bool) {
+	if runtime.GOOS != "darwin" {
+		return 0, false
+	}
+	out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+	if err != nil {
+		return 0, false
+	}
+	v, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	return v, err == nil
+}
 
 func otworzAdres(adres string) {
 	if runtime.GOOS == "darwin" {

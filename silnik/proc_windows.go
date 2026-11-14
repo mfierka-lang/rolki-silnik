@@ -72,6 +72,21 @@ func zarejestrujAdres(program string) {
 	cmd.Run()
 }
 
+var globalMemoryStatusEx = syscall.NewLazyDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx")
+
+// pamiecRAM: ile pamięci ma komputer (bajty).
+func pamiecRAM() (int64, bool) {
+	var m struct {
+		Dlugosc, Obciazenie                                                 uint32
+		Razem, Wolne, PlikRazem, PlikWolny, WirtRazem, WirtWolny, WirtRozsz uint64
+	}
+	m.Dlugosc = uint32(unsafe.Sizeof(m))
+	if r, _, _ := globalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&m))); r == 0 {
+		return 0, false
+	}
+	return int64(m.Razem), true
+}
+
 // otworzAdres: strona w domyślnej przeglądarce.
 func otworzAdres(adres string) {
 	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", adres)
