@@ -52,10 +52,15 @@
   }
 
   // ---------- wykrywanie silnika ----------
-  var proby = 0, pominiete = false;
+  var proby = 0, pominiete = false, sprzetWyslany = false;
   function sprawdz() {
     return wolaj("/api/stan").then(function (s) {
       proby = 0;
+      // panel zapisuje przy koncie, na jakim komputerze działa silnik (pomoc techniczna); raz na otwarcie strony
+      if (NA_STRONIE && s.sprzet && !sprzetWyslany) {
+        sprzetWyslany = true;
+        fetch("/sprzet", { method: "POST", body: new URLSearchParams({ dane: JSON.stringify(s.sprzet) }) }).catch(function () {});
+      }
       $("wersja-silnika").textContent = "silnik " + s.wersja + (s.modele ? " · " + s.modele : "");
       if (s.zadanie && s.zadanie.stan === "praca") {
         zadanie = s.zadanie.id;

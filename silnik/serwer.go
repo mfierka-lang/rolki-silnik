@@ -85,6 +85,7 @@ type Serwer struct {
 	zlecenie  *stanZlecenia
 	ostatnio  time.Time
 	przyg     stanPrzygotowania
+	sprzet    Sprzet
 	dodatkowe []string // dodatkowe dozwolone adresy panelu (flaga --panel, do testów)
 }
 
@@ -214,7 +215,7 @@ func (s *Serwer) stan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	odp := map[string]any{"ok": true, "wersja": wersja, "system": runtime.GOOS, "gotowy": !wymagane, "komplet": len(brak) == 0, "brak": nazwy, "modele": modele, "przygotowanie": s.przyg}
+	odp := map[string]any{"ok": true, "wersja": wersja, "system": runtime.GOOS, "gotowy": !wymagane, "komplet": len(brak) == 0, "brak": nazwy, "modele": modele, "przygotowanie": s.przyg, "sprzet": s.sprzet}
 	if z := s.zlecenie; z != nil {
 		odp["zadanie"] = map[string]any{"id": z.ID, "stan": z.Stan, "sekundy": time.Since(z.Start).Seconds(), "wynik": z.Wynik}
 	}
@@ -554,6 +555,7 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 		styl = abs
 	}
 	s := &Serwer{dane: dane, styl: styl, pliki: map[string]*plikWejsciowy{}, ostatnio: time.Now()}
+	s.sprzet = odczytajSprzet(dane)
 	if panel != "" {
 		s.dodatkowe = strings.Split(panel, ",")
 	}
