@@ -215,7 +215,9 @@
     }).catch(function (e) { bladEkran(e.message); });
   }
   $("montuj").addEventListener("click", function () {
-    montuj({ pliki: pliki.map(function (p) { return p.id; }), opis: $("opis").value.trim() });
+    var wybrane = function (nazwa) { var e = document.querySelector('input[name="' + nazwa + '"]:checked'); return e ? e.value : ""; };
+    montuj({ pliki: pliki.map(function (p) { return p.id; }), opis: $("opis").value.trim(), format: wybrane("format"), dlugosc: wybrane("dlugosc"),
+      napisy: $("opcja-napisy").checked, przejscia: $("opcja-przejscia").checked, animacje: $("opcja-animacje").checked });
   });
   function pilnuj() {
     clearInterval(zegar);
@@ -257,10 +259,11 @@
     $("film").src = adres + ".mp4?t=" + Date.now();
     $("pobierz").href = adres + "/pobierz";
     var czesci = [];
-    if (wynik.czas) czesci.push("Rolka ma " + Math.round(wynik.czas) + " s");
+    if (wynik.czas) czesci.push("Film ma " + Math.round(wynik.czas) + " s");
     if (wynik.trwalo) czesci.push("montaż trwał " + czasTekst(wynik.trwalo) + " min");
     $("wynik-podsumowanie").textContent = (wynik.temat ? wynik.temat + " " : "") + (czesci.length ? czesci.join(", ") + "." : "");
-    $("wynik-nad").textContent = wynik.rodzaj === "mowa" ? "Rolka mówiona" : "Rolka z ujęć";
+    $("wynik-nad").textContent = (wynik.rodzaj === "mowa" ? "Film mówiony" : "Film z ujęć") + (wynik.format === "poziom" ? ", poziomy 16:9" : ", pionowy 9:16");
+    document.querySelector(".ekran-wynik").classList.toggle("poziomy", wynik.format === "poziom");
     var opis = (wynik.opis || "") + ((wynik.hashtagi || []).length ? "\n\n" + wynik.hashtagi.join(" ") : "");
     $("blok-opis").hidden = !opis.trim();
     $("opis-posta").textContent = opis.trim();

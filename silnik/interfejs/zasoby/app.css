@@ -145,3 +145,22 @@ details.blok[open] summary::before{content:"- "}
 .wyloguj{display:inline;margin:0}
 .gora-prawo .link{font-weight:600;font-size:14px}
 .tabela form{display:inline}
+
+/* wybór formatu, długości i dodatków */
+.opcje{display:flex;flex-wrap:wrap;gap:14px 22px;margin-top:22px}
+.wybor{border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.wybor legend{float:left;font:600 14px/1 "Figtree",sans-serif;color:var(--tekst-2);margin-right:10px;padding:0}
+.wybor label{position:relative;cursor:pointer}
+.wybor input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.wybor span{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px;border-radius:99px;border:1px solid var(--linia-2);font:600 14px/1 "Figtree",sans-serif;color:var(--tekst-2);transition:background .15s,border-color .15s,color .15s}
+.wybor small{font-weight:400;color:var(--tekst-3)}
+.wybor input:checked+span{background:var(--tekst);border-color:var(--tekst);color:var(--tlo)}
+.wybor input:checked+span small{color:#5b564e}
+.wybor input:focus-visible+span{outline:2px solid var(--akcent);outline-offset:3px}
+.wybor-pola span::before{content:"";width:14px;height:14px;border-radius:4px;border:1.5px solid currentColor}
+.wybor-pola input:checked+span{background:transparent;border-color:var(--akcent);color:var(--tekst)}
+.wybor-pola input:checked+span::before{background:var(--akcent);border-color:var(--akcent)}
+.ekran-wynik.poziomy{grid-template-columns:1fr}
+.ekran-wynik.poziomy .wynik-film{position:static;max-width:760px}
+.ekran-wynik.poziomy .wynik-film video{aspect-ratio:16/9}
+@media (max-width:760px){.wybor legend{float:none;width:100%;margin-bottom:6px}}

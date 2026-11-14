@@ -111,7 +111,7 @@ func (p *pisarzASS) element(od, do, x1, y1, x2, y2, promien float64, kolor strin
 		linia := fmt.Sprintf(`\an7\move(%.0f,%.0f,%.0f,%.0f,0,%d)\fad(0,90)\blur3\bord0\shad0\1c%s\p1`,
 			x1, y2-3, x1, y1-3, D, kolorASS(p.st.Napisy.Akcent.Kolor))
 		fmt.Fprintf(&p.b, "Dialogue: %d,%s,%s,T,,0,0,0,,{%s}%s{\\p0}\n", p.warstwa+2, czasASS(od), czasASS(math.Min(do, od+float64(D)/1000+0.09)), linia, kartaASS(w, 6, 3))
-	} else {
+	} else if p.st.Napisy.Wejscie != "brak" {
 		poz = func(x, y float64) string {
 			return fmt.Sprintf(`\move(%.0f,%.0f,%.0f,%.0f,0,240)\fad(130,0)`, x, y+46, x, y)
 		}
@@ -166,12 +166,12 @@ func (p *pisarzASS) naglowekRolki(hak []string, mH *Miara, koniec float64) {
 		return
 	}
 	// szerokość bloku = tekst + 2 odstępy, a odstęp rośnie razem z krojem
-	rozmiar := math.Min(st.Hak.MaksRozmiar, 0.80*float64(st.Szer)/(maks/100+2*st.Hak.OdstepX/st.Hak.Font.Rozmiar))
+	rozmiar := math.Min(st.Hak.MaksRozmiar, st.Hak.Szerokosc*float64(st.Szer)/(maks/100+2*st.Hak.OdstepX/st.Hak.Font.Rozmiar))
 	p.bloki(linie, mH, rozmiar, 0.12, koniec, float64(st.Wys)*st.Hak.Y, false)
 }
 
 // zapiszNapisyUjec: nagłówek (linie haka, do końca pierwszego ujęcia) i hasła na ujęciach. Zwraca pliki fontów.
-func zapiszNapisyUjec(plik string, hak []string, hakKoniec float64, napisy []NapisUjecia, st *Styl) ([]string, error) {
+func zapiszNapisyUjec(plik string, hak []string, hakKoniec float64, napisy []NapisUjecia, przejscia []float64, st *Styl) ([]string, error) {
 	n := st.Napisy
 	plikH := filepath.Join(st.Katalog, st.Hak.Font.Plik)
 	plikT := filepath.Join(st.Katalog, n.Tekst.Plik)
@@ -193,6 +193,9 @@ func zapiszNapisyUjec(plik string, hak []string, hakKoniec float64, napisy []Nap
 	szerKadru := float64(st.Szer)
 
 	p.naglowekRolki(hak, mH, hakKoniec)
+	for _, t := range przejscia {
+		p.liniaPrzejscia(t)
+	}
 
 	// hasła na ujęciach
 	cy := float64(st.Wys) * n.Y

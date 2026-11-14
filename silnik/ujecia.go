@@ -42,7 +42,7 @@ func przygotujUjecie(n *Narzedzia, k *Klip, o Okno, st *Styl, praca, nazwa strin
 	x = max(0, min(k.W-kw, x))
 	y := (k.H - kh) / 2
 	kadr := fmt.Sprintf("fps=%d,crop=%d:%d:%d:%d,scale=%d:%d:flags=lanczos", st.Klatki, kw, kh, x, y, st.Szer, st.Wys)
-	if o.Predkosc < 1.0 && !stabilizuj {
+	if o.Predkosc < 1.0 && !stabilizuj && !bezNajazdu {
 		// kamera stoi: powolny najazd o 4%, żeby ujęcie żyło (obraz 2 razy większy przed najazdem = płynny ruch)
 		klatek := math.Round((o.Do - o.Od) * float64(st.Klatki))
 		kadr = fmt.Sprintf(`fps=%d,crop=%d:%d:%d:%d,scale=%d:%d:flags=bicubic,zoompan=z='1+0.04*on/%.0f':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=1:s=%dx%d:fps=%d`,
@@ -76,7 +76,7 @@ func przygotujUjecie(n *Narzedzia, k *Klip, o Okno, st *Styl, praca, nazwa strin
 }
 
 // zlozUjecia: łączy przygotowane ujęcia, nakłada nagłówek, wyrównuje dźwięk z planu i koduje gotowy plik.
-func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, maNapisy bool, wyjscie string) error {
+func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []string, maDzwiek []bool, czasy []float64, przejsciaPo map[int]bool, maNapisy bool, wyjscie string) error {
 	var f strings.Builder
 	arg := []string{"-hide_banner", "-y", "-nostats", "-loglevel", "error"}
 	razem := 0.0
@@ -94,7 +94,7 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 		ea = append(ea, fmt.Sprintf("[a%d]", i))
 		razem += d
 	}
-	fmt.Fprintf(&f, "%sconcat=n=%d:v=1:a=0[vc];\n", strings.Join(ev, ""), len(ev))
+	razem = lancuchZlozenia(&f, ev, ea, czasy, przejsciaPo)
 	if maNapisy {
 		f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty[v];\n")
 	} else {
@@ -102,8 +102,7 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 	}
 	// dźwięk z planu zostaje (nigdy cisza). Dopóki nie ma muzyki, jest całą ścieżką, więc dostaje pełną głośność;
 	// gdy dojdzie muzyka z biblioteki, zejdzie o kilka dB i będzie tłem.
-	fmt.Fprintf(&f, "%sconcat=n=%d:v=0:a=1,highpass=f=70,loudnorm=I=%s:TP=-2:LRA=9,aresample=48000,alimiter=limit=0.89:level=0[a]\n",
-		strings.Join(ea, ""), len(ea), liczba(st.Dzwiek.GlosnoscLUFS))
+	fmt.Fprintf(&f, "[ac]highpass=f=70,loudnorm=I=%s:TP=-2:LRA=9,aresample=48000,alimiter=limit=0.89:level=0[a]\n", liczba(st.Dzwiek.GlosnoscLUFS))
 	if err := os.WriteFile(filepath.Join(praca, "filtr.txt"), []byte(f.String()), 0o644); err != nil {
 		return err
 	}
@@ -134,6 +133,8 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	progDrgan := fs.Float64("prog", 0, "największe dopuszczalne drgania (0 = z szablonu)")
 	progPodob := fs.Float64("podobne", 0.85, "powyżej tego podobieństwa (0-1) dwa kadry uznaję za prawie takie same")
 	progOceny := fs.Float64("ocena", 1.2, "najgorsza ocena ujęcia, które jeszcze może wejść do rolki")
+	przejscia := fs.Bool("przejscia", false, "przejścia na granicach części filmu (odsłonięcie od dołu z linią dyszy)")
+	najazdWyl := fs.Bool("bez-najazdu", false, "bez powolnego najazdu na nieruchomych ujęciach")
 	pomin := fs.Int("pomin", 0, "ile ujęć z początku pominąć (uwaga: skróć początek)")
 	zRozumem := fs.Bool("rozum", false, "opisz ujęcia modelem (kolejność: plan ogólny na początek, spokojny widok na koniec; hasła z szablonu)")
 	fs.Parse(arg)
@@ -187,7 +188,11 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		if k.Czas > 60 {
 			ile = 3
 		}
-		okna = append(okna, oknaKlipu(i, k, skany[i], *ujecie, ile, 6)...)
+		odstep := 6.0
+		if *dlugosc > 60 { // dłuższy film: więcej ujęć z każdego nagrania, gęściej
+			ile, odstep = max(1, min(8, int(k.Czas/8))), 3
+		}
+		okna = append(okna, oknaKlipu(i, k, skany[i], *ujecie, ile, odstep)...)
 	}
 	if tylkoSkan {
 		fmt.Printf("%-34s %7s %6s | okna: od-do (drgania, prędkość, ostrość, ruch w kadrze, kadr X)\n", "nagranie", "czas", "skan")
@@ -280,7 +285,12 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	zKlipu := map[int]int{}
 	sprawdzone := make([]bool, len(okna))
 	podobnych, widokow := 0, 0
-	for runda := 1; runda <= 3 && len(wybrane) < ile; runda++ {
+	rundy := 3
+	if *dlugosc > 60 {
+		rundy = 8
+	}
+	bezNajazdu = *najazdWyl
+	for runda := 1; runda <= rundy && len(wybrane) < ile; runda++ {
 		for i, o := range okna {
 			if len(wybrane) >= ile {
 				break
@@ -289,7 +299,7 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 				continue
 			}
 			// nieruchomy widok bez ludzi: jeden wystarczy (na zakończenie); kolejne dopiero, gdy brakuje materiału
-			if o.Rola == "widok" && widokow >= 1 && runda < 3 {
+			if o.Rola == "widok" && widokow >= 1 && runda < rundy {
 				continue
 			}
 			sprawdzone[i] = true
@@ -358,6 +368,10 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		wybrane[i].Od = math.Round(wybrane[i].Od*kl) / kl
 		wybrane[i].Do = wybrane[i].Od + math.Round(*ujecie*kl)/kl
 	}
+	// chwila oddechu przed końcem: ostatnie ujęcie (efekt, wezwanie) trwa o 0,6 s dłużej, gdy nagranie na to pozwala
+	if ost := len(wybrane) - 1; ost >= 2 && wybrane[ost].Do+0.6 < klipy[wybrane[ost].Klip].Czas-0.2 {
+		wybrane[ost].Do += 0.6
+	}
 	js, _ := json.MarshalIndent(wybrane, "", " ")
 	os.WriteFile(filepath.Join(pracaAbs, "wybor.json"), js, 0o644)
 
@@ -383,6 +397,22 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		czasy = append(czasy, o.Do-o.Od)
 	}
 	tUj := time.Since(t1).Seconds()
+
+	// przejścia skracają oś czasu (dwa ujęcia nakładają się na chwilę): napisy liczone są na osi po przejściach
+	przejsciaPo := map[int]bool{}
+	if *przejscia {
+		przejsciaPo = przejsciaDlaUjec(len(wybrane), *dlugosc > 60)
+	}
+	czasyEf := append([]float64(nil), czasy...)
+	var chwilePrzejsc []float64
+	naOsi := 0.0
+	for i := range czasyEf {
+		if przejsciaPo[i] && i < len(czasyEf)-1 {
+			czasyEf[i] -= czasPrzejscia
+			chwilePrzejsc = append(chwilePrzejsc, naOsi+czasyEf[i])
+		}
+		naOsi += czasyEf[i]
+	}
 
 	// 5. nagłówek i złożenie
 	t2 := time.Now()
@@ -412,12 +442,12 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 				tekst = dopasujHaslo(st, o.Opis, uzyte)
 			}
 			if tekst != "" {
-				hasla = append(hasla, NapisUjecia{tekst, pocz, pocz + czasy[i]})
+				hasla = append(hasla, NapisUjecia{tekst, pocz, pocz + czasyEf[i]})
 			}
-			pocz += czasy[i]
+			pocz += czasyEf[i]
 		}
 	} else {
-		hasla = rozlozNapisy(*napisySpec, czasy, *hak != "")
+		hasla = rozlozNapisy(*napisySpec, czasyEf, *hak != "")
 	}
 	var teksty []string
 	for _, h := range hasla {
@@ -426,8 +456,8 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	rap, _ := json.MarshalIndent(map[string]any{"ujecia": wybrane, "hasla": teksty, "naglowek": linieHaka, "rozum": nazwaRozumu,
 		"czas": float64(len(wybrane)) * *ujecie, "nagran": len(klipy), "material": sumaNagran}, "", " ")
 	os.WriteFile(filepath.Join(pracaAbs, "ujecia.json"), rap, 0o644)
-	if len(linieHaka) > 0 || len(hasla) > 0 {
-		fonty, err := zapiszNapisyUjec(filepath.Join(pracaAbs, "napisy.ass"), linieHaka, czasy[0], hasla, st)
+	if len(linieHaka) > 0 || len(hasla) > 0 || len(chwilePrzejsc) > 0 {
+		fonty, err := zapiszNapisyUjec(filepath.Join(pracaAbs, "napisy.ass"), linieHaka, czasyEf[0], hasla, chwilePrzejsc, st)
 		if err != nil {
 			blad(err)
 		}
@@ -440,12 +470,12 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	enk := wybierzEnkoder(n)
 	komunikat("render", 0.92, "Składam rolkę ("+enk.Nazwa+")")
 	wy, _ := filepath.Abs(*wyjscie)
-	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, maNapisy, wy); err != nil {
+	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, maNapisy, wy); err != nil {
 		if enk.Nazwa == "libx264" {
 			blad(err)
 		}
 		kand := kandydaciEnkoderow()
-		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, maNapisy, wy); err != nil {
+		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, maNapisy, wy); err != nil {
 			blad(err)
 		}
 	}

@@ -42,6 +42,8 @@ type StylHak struct {
 	Odstep  float64  `json:"odstep"` // przerwa między blokami
 	// największy krój nagłówka: linie są powiększane tak, żeby najdłuższa zajęła ok. 4/5 szerokości kadru
 	MaksRozmiar float64 `json:"maksRozmiar"`
+	// jaką część szerokości kadru zajmuje najdłuższa linia nagłówka (pion 0,80; poziom 0,44)
+	Szerokosc float64 `json:"szerokosc"`
 }
 
 type Styl struct {
@@ -140,6 +142,9 @@ func wczytajStyl(plik string) (*Styl, error) {
 	}
 	if s.Napisy.Y == 0 {
 		s.Napisy.Y = 0.66
+		if s.Szer > s.Wys { // film poziomy: napisy jako wąski pasek u dołu
+			s.Napisy.Y = 0.86
+		}
 	}
 	if s.Napisy.SkalaOd == 0 {
 		s.Napisy.SkalaOd = 100
@@ -150,6 +155,15 @@ func wczytajStyl(plik string) (*Styl, error) {
 	}
 	if s.Hak.MaksRozmiar == 0 {
 		s.Hak.MaksRozmiar = 136
+		if s.Szer > s.Wys {
+			s.Hak.MaksRozmiar = 96
+		}
+	}
+	if s.Hak.Szerokosc == 0 {
+		s.Hak.Szerokosc = 0.80
+		if s.Szer > s.Wys {
+			s.Hak.Szerokosc, s.Hak.Y = 0.44, 0.09
+		}
 	}
 	if s.Napisy.Rodzaj == "" {
 		s.Napisy.Rodzaj = "karta"

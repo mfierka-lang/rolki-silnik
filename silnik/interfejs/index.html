@@ -52,7 +52,7 @@
 
   <!-- 3. start: nagrania i opis -->
   <section class="ekran" id="ekran-start" hidden>
-    <p class="nad">Nowa rolka</p>
+    <p class="nad">Nowy film</p>
     <h1>Wrzuć nagrania, napisz <em>o czym</em>, kliknij Montuj</h1>
     <div class="strefa" id="strefa" tabindex="0" role="button" aria-label="Dodaj nagrania">
       <div class="strefa-tresc">
@@ -64,9 +64,24 @@
     </div>
     <ul class="pliki" id="pliki"></ul>
     <label class="pole">
-      <span>O czym ma być rolka?</span>
+      <span>O czym ma być film?</span>
       <textarea id="opis" rows="2" maxlength="400" placeholder="np. rolka o magnesach NFC dla restauracji, dynamicznie"></textarea>
     </label>
+    <div class="opcje" id="opcje">
+      <fieldset class="wybor"><legend>Format</legend>
+        <label><input type="radio" name="format" value="pion" checked><span>Pionowy <small>rolka 9:16</small></span></label>
+        <label><input type="radio" name="format" value="poziom"><span>Poziomy <small>film 16:9</small></span></label>
+      </fieldset>
+      <fieldset class="wybor"><legend>Długość</legend>
+        <label><input type="radio" name="dlugosc" value="krotki" checked><span>Do 60 sekund</span></label>
+        <label><input type="radio" name="dlugosc" value="dlugi"><span>Dłuższy film</span></label>
+      </fieldset>
+      <fieldset class="wybor wybor-pola"><legend>W filmie</legend>
+        <label><input type="checkbox" id="opcja-napisy" checked><span>Napisy</span></label>
+        <label><input type="checkbox" id="opcja-przejscia" checked><span>Przejścia</span></label>
+        <label><input type="checkbox" id="opcja-animacje" checked><span>Animacje</span></label>
+      </fieldset>
+    </div>
     <div class="rzad rzad-koniec">
       <p class="drobne" id="start-uwaga">Nagrania zostają na tym komputerze.</p>
       <button class="btn btn-glowny btn-duzy" id="montuj" disabled>Montuj</button>
@@ -76,7 +91,7 @@
   <!-- 4. praca -->
   <section class="ekran ekran-praca" id="ekran-praca" hidden>
     <p class="nad">Montaż trwa</p>
-    <h1 id="praca-tytul">Składam <em>rolkę</em></h1>
+    <h1 id="praca-tytul">Składam <em>film</em></h1>
     <div class="pasek pasek-duzy"><i id="pasek"></i></div>
     <div class="rzad rzad-miedzy">
       <p class="etap" id="etap">Zaczynam</p>
@@ -93,7 +108,7 @@
     </div>
     <div class="wynik-bok">
       <p class="nad" id="wynik-nad">Gotowe</p>
-      <h1>Rolka <em>gotowa</em></h1>
+      <h1 id="wynik-tytul">Film <em>gotowy</em></h1>
       <p class="lead" id="wynik-podsumowanie"></p>
       <div class="rzad">
         <a class="btn btn-glowny btn-duzy" id="pobierz" href="#">Pobierz</a>
@@ -114,8 +129,8 @@
           <textarea id="popraw" rows="2" maxlength="300" placeholder="np. krócej, większe napisy, bez nagłówka, nagłówek: Magnesy NFC / dla restauracji"></textarea>
         </label>
         <div class="rzad rzad-miedzy">
-          <button class="link" id="nowa" type="button">Nowa rolka</button>
-          <button class="btn" id="popraw-btn" type="button" disabled>Popraw rolkę</button>
+          <button class="link" id="nowa" type="button">Nowy film</button>
+          <button class="btn" id="popraw-btn" type="button" disabled>Popraw film</button>
         </div>
       </div>
     </div>

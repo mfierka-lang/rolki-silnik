@@ -51,7 +51,7 @@ func klatkaUjecia(n *Narzedzia, k *Klip, o Okno, st *Styl) ([]byte, error) {
 	x := max(0, min(k.W-kw, int(math.Round(o.KadrX*float64(k.W)-float64(kw)/2))))
 	arg := []string{"-v", "error", "-nostdin", "-ss", liczba((o.Od + o.Do) / 2)}
 	arg = append(arg, dekodowanieSprzetowe()...)
-	arg = append(arg, "-i", k.Plik, "-frames:v", "1", "-vf", fmt.Sprintf("crop=%d:%d:%d:%d,scale=432:768", kw, kh, x, (k.H-kh)/2), "-q:v", "4", "-f", "image2pipe", "-c:v", "mjpeg", "-")
+	arg = append(arg, "-i", k.Plik, "-frames:v", "1", "-vf", fmt.Sprintf("crop=%d:%d:%d:%d,scale=%s", kw, kh, x, (k.H-kh)/2, skalaKlatki(st)), "-q:v", "4", "-f", "image2pipe", "-c:v", "mjpeg", "-")
 	ctx, stop := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer stop()
 	out, errs, err := uruchomBajty(ctx, n.FFmpeg, arg...)
@@ -61,18 +61,18 @@ func klatkaUjecia(n *Narzedzia, k *Klip, o Okno, st *Styl) ([]byte, error) {
 	return out, nil
 }
 
-func plikOpisu(n *Narzedzia, k *Klip, o Okno) string {
+func plikOpisu(n *Narzedzia, k *Klip, o Okno, st *Styl) string {
 	znak := k.Plik
 	if fi, err := os.Stat(k.Plik); err == nil {
 		znak = fmt.Sprintf("%s|%d|%d", k.Plik, fi.Size(), fi.ModTime().UnixNano())
 	}
-	h := sha1.Sum([]byte(fmt.Sprintf("%s|%.1f|%.2f|v2", znak, (o.Od+o.Do)/2, o.KadrX)))
+	h := sha1.Sum([]byte(fmt.Sprintf("%s|%.1f|%.2f|%dx%d|v2", znak, (o.Od+o.Do)/2, o.KadrX, st.Szer, st.Wys)))
 	return filepath.Join(n.Dane, "opisy", hex.EncodeToString(h[:])+".json")
 }
 
 // opiszUjecie: opis z pamięci albo od modelu. Błąd modelu nie przerywa montażu (ujęcie zostaje bez opisu).
 func opiszUjecie(r *Rozum, n *Narzedzia, k *Klip, o Okno, st *Styl) (*OpisUjecia, bool) {
-	plik := plikOpisu(n, k, o)
+	plik := plikOpisu(n, k, o, st)
 	if b, err := os.ReadFile(plik); err == nil {
 		op := &OpisUjecia{}
 		if json.Unmarshal(b, op) == nil && op.Plan != "" {
@@ -112,7 +112,7 @@ func rolaUjecia(op *OpisUjecia) string {
 		return "detal"
 	case op.Ludzie == 0 && !op.Akcja:
 		return "widok"
-	case op.Plan == "szeroki" && op.Ludzie <= 1 && reMiejsce.MatchString(tekst):
+	case op.Plan == "szeroki" && op.Ludzie <= 2 && reMiejsce.MatchString(tekst):
 		return "otwarcie"
 	case op.Ludzie >= 1 && op.Akcja:
 		return "praca"

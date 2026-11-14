@@ -293,6 +293,11 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 		Opis       string   `json:"opis"`
 		Popraw     string   `json:"popraw"`
 		Poprzednie string   `json:"poprzednie"`
+		Format     string   `json:"format"`
+		Dlugosc    string   `json:"dlugosc"`
+		Napisy     *bool    `json:"napisy"`
+		Przejscia  *bool    `json:"przejscia"`
+		Animacje   *bool    `json:"animacje"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&we); err != nil {
 		odpowiedzBlad(w, 400, "nieczytelne zlecenie")
@@ -304,12 +309,15 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 		odpowiedzBlad(w, 409, "Silnik właśnie montuje inną rolkę")
 		return
 	}
-	z := &Zadanie{Opis: strings.TrimSpace(we.Opis), Styl: s.styl, Dane: s.dane}
+	wylaczone := func(v *bool) bool { return v != nil && !*v }
+	z := &Zadanie{Opis: strings.TrimSpace(we.Opis), Styl: s.styl, Dane: s.dane, Format: we.Format, Dlugosc: we.Dlugosc,
+		BezNapisow: wylaczone(we.Napisy), BezPrzejsc: wylaczone(we.Przejscia), BezAnimacji: wylaczone(we.Animacje)}
 	if we.Poprzednie != "" { // poprawka: te same nagrania i opis, do tego kolejna uwaga
 		if b, err := os.ReadFile(filepath.Join(s.dane, "zlecenia", filepath.Base(we.Poprzednie), "zadanie.json")); err == nil {
 			var stare Zadanie
 			if json.Unmarshal(b, &stare) == nil {
 				z.Pliki, z.Opis, z.Popraw = stare.Pliki, stare.Opis, stare.Popraw
+				z.Format, z.Dlugosc, z.BezNapisow, z.BezPrzejsc, z.BezAnimacji = stare.Format, stare.Dlugosc, stare.BezNapisow, stare.BezPrzejsc, stare.BezAnimacji
 			}
 		}
 		if t := strings.TrimSpace(we.Popraw); t != "" {

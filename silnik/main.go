@@ -20,7 +20,7 @@ import (
 	"golang.org/x/image/font/sfnt"
 )
 
-const wersja = "0.2.1"
+const wersja = "0.3.0"
 
 // komunikat: postęp jako wiersze JSON (czytane później przez stronę), a dla człowieka czytelny tekst na stderr.
 // zakresPostepu: gdy montaż jest częścią większego zlecenia, jego postęp 0-1 trafia w wycinek paska całości.
@@ -104,6 +104,7 @@ func poleceniaMontuj(arg []string) {
 	opis := fs.String("opis", "", "opis rolki od użytkownika")
 	hak := fs.String("hak", "", "nagłówek na początek: \"Linia 1|Linia 2\"")
 	bezNapisow := fs.Bool("bez-napisow", false, "rolka bez napisów mowy")
+	maks := fs.Float64("maks", 0, "największa długość filmu w sekundach (0 = bez limitu)")
 	fs.Parse(arg)
 	pliki := fs.Args()
 	if len(pliki) == 0 {
@@ -185,6 +186,7 @@ func poleceniaMontuj(arg []string) {
 	// 3. plan cięć i napisy
 	komunikat("plan", 0.52, "Wycinam pauzy i powtórzenia")
 	plan := zaplanujMowe(frazy, czasy, st)
+	skrocPlan(plan, *maks, float64(st.Klatki))
 	if len(plan.Odcinki) == 0 {
 		blad(fmt.Errorf("po wycięciu pauz nic nie zostało"))
 	}

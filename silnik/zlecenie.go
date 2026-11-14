@@ -26,11 +26,18 @@ type Zadanie struct {
 	Praca   string   `json:"praca"`  // katalog roboczy tego zlecenia
 	Wyjscie string   `json:"wyjscie"`
 	Rodzaj  string   `json:"rodzaj"` // "" = rozpoznaj, "mowa", "ujecia"
+	// wybór na stronie
+	Format      string `json:"format"`  // "pion" (9:16, domyślnie) albo "poziom" (16:9)
+	Dlugosc     string `json:"dlugosc"` // "krotki" (do 60 s, domyślnie) albo "dlugi"
+	BezNapisow  bool   `json:"bezNapisow"`
+	BezPrzejsc  bool   `json:"bezPrzejsc"`
+	BezAnimacji bool   `json:"bezAnimacji"`
 }
 
 type Wynik struct {
 	Plik     string   `json:"plik"`
 	Rodzaj   string   `json:"rodzaj"` // mowa | ujecia
+	Format   string   `json:"format"` // pion | poziom
 	Czas     float64  `json:"czas"`   // długość rolki w sekundach
 	Trwalo   float64  `json:"trwalo"` // ile trwał montaż
 	Temat    string   `json:"temat"`
@@ -144,7 +151,8 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 
 // stylZlecenia: gdy uwagi zmieniają wielkość napisów, powstaje kopia stylu tylko dla tego zlecenia.
 func stylZlecenia(z *Zadanie, u Ustawienia) string {
-	if u.SkalaNapisu == 1 {
+	poziom := z.Format == "poziom"
+	if u.SkalaNapisu == 1 && !poziom && !z.BezAnimacji {
 		return z.Styl
 	}
 	b, err := os.ReadFile(z.Styl)
@@ -155,11 +163,33 @@ func stylZlecenia(z *Zadanie, u Ustawienia) string {
 	if json.Unmarshal(b, &m) != nil {
 		return z.Styl
 	}
+	skala := u.SkalaNapisu
+	if poziom {
+		// film poziomy: kadr 1920 x 1080, napisy mniejsze (wąski pasek u dołu), szersze linie
+		m["szer"], m["wys"] = 1920, 1080
+		skala *= 0.72
+	}
+	if z.BezAnimacji {
+		m["kadr"] = map[string]any{"zblizenia": []float64{1}, "y": 0.5}
+	}
 	if n, ok := m["napisy"].(map[string]any); ok {
+		if poziom {
+			n["maksSzer"], n["y"], n["maksSlow"] = 1250, 0.86, 5
+			if k, ok := n["karta"].(map[string]any); ok {
+				for _, pole := range []string{"promien", "odstepX", "odstepY", "dy"} {
+					if v, ok := k[pole].(float64); ok {
+						k[pole] = math.Round(v * 0.72)
+					}
+				}
+			}
+		}
+		if z.BezAnimacji {
+			n["wejscie"] = "brak"
+		}
 		for _, klucz := range []string{"tekst", "akcent"} {
 			if f, ok := n[klucz].(map[string]any); ok {
 				if r, ok := f["rozmiar"].(float64); ok {
-					f["rozmiar"] = math.Round(r * u.SkalaNapisu)
+					f["rozmiar"] = math.Round(r * skala)
 				}
 			}
 		}
@@ -331,7 +361,24 @@ func polecenieWykonaj(arg []string) {
 	if err != nil {
 		blad(err)
 	}
+	if z.BezNapisow {
+		ust.BezNapisow = true
+	}
+	dlugi := z.Dlugosc == "dlugi"
+	if dlugi && ust.Dlugosc == 24 { // dłuższy film z ujęć: do 2 minut, spokojniejsze ujęcia
+		ust.Dlugosc = 120
+		if ust.Ujecie == 2.4 {
+			ust.Ujecie = 3.4
+		}
+	}
+	if !dlugi && ust.Dlugosc > 60 {
+		ust.Dlugosc = 60
+	}
 	w := &Wynik{Plik: z.Wyjscie, Raport: append([]string(nil), ust.Notatki...)}
+	w.Format = "pion"
+	if z.Format == "poziom" {
+		w.Format = "poziom"
+	}
 
 	// 1. nagrania: parametry i „obejrzenie” (ruch kamery, ostrość, twarze). Wynik zostaje w pamięci silnika.
 	var klipy []*Klip
@@ -405,7 +452,7 @@ func polecenieWykonaj(arg []string) {
 	} else {
 		w.Opis, w.Hashtagi = opisPosta(st, "", z.Opis)
 	}
-	if ust.BezNaglowka {
+	if ust.BezNaglowka || ust.BezNapisow {
 		naglowek = nil
 	}
 	w.Naglowek = naglowek
@@ -418,6 +465,9 @@ func polecenieWykonaj(arg []string) {
 		a := []string{"--styl", stylPlik, "--dane", dane, "--praca", z.Praca, "--wyjscie", z.Wyjscie, "--hak", hak}
 		if ust.BezNapisow {
 			a = append(a, "--bez-napisow")
+		}
+		if !dlugi {
+			a = append(a, "--maks", "60")
 		}
 		for _, i := range mowione {
 			a = append(a, klipy[i].Plik)
@@ -446,6 +496,12 @@ func polecenieWykonaj(arg []string) {
 		}
 		a := []string{"--styl", stylPlik, "--dane", dane, "--praca", z.Praca, "--wyjscie", z.Wyjscie, "--rozum", "--napisy", napisy, "--hak", hak,
 			"--dlugosc", liczba(ust.Dlugosc), "--ujecie", liczba(ust.Ujecie), "--pomin", fmt.Sprint(ust.Pomin)}
+		if !z.BezPrzejsc {
+			a = append(a, "--przejscia")
+		}
+		if z.BezAnimacji {
+			a = append(a, "--bez-najazdu")
+		}
 		for _, k := range klipy {
 			a = append(a, k.Plik)
 		}
