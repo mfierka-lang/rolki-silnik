@@ -79,6 +79,7 @@
     return wolaj("/api/stan").then(function (s) {
       proby = 0;
       polaczony = true;
+      try { localStorage.setItem("zm-silnik-byl", "1"); } catch (e) {}
       ustawStyleMuzyki(s.muzyka || []);
       rysujSynchro(s.synchro);
       // po przełączeniu silnika na nową wersję synchronizacja idzie jeszcze raz (muzykę dociąga nowy silnik)
@@ -131,9 +132,25 @@
     var a = $("pobierz-silnik");
     if (p) { a.href = p; a.textContent = system === "mac" ? "Pobierz silnik dla macOS" : "Pobierz silnik dla Windows"; }
     else { a.hidden = true; }
+    // uruchomienie ze strony panelu: silnik nie otwiera wtedy własnej, drugiej karty
+    if (NA_STRONIE) $("uruchom-silnik").href = "zblizka-montaz://start?okno=0";
     $("krok-system").innerHTML = system === "mac"
-      ? "Mac ostrzeże, że nie może zweryfikować aplikacji. Wejdź w <b>Ustawienia systemowe</b>, <b>Prywatność i ochrona</b>, zjedź na dół i kliknij <b>Otwórz mimo to</b>."
+      ? "Mac ostrzeże, że nie może zweryfikować aplikacji: kliknij <b>Gotowe</b>. Potem wejdź w <b>Ustawienia systemowe</b>, <b>Prywatność i ochrona</b>, zjedź na dół, kliknij <b>Otwórz mimo to</b> i potwierdź."
       : "Jeśli Windows pokaże niebieskie okno, kliknij <b>Więcej informacji</b>, potem <b>Uruchom mimo to</b>.";
+    var byl = false;
+    try { byl = localStorage.getItem("zm-silnik-byl") === "1"; } catch (e) {}
+    var kroki = document.querySelector("#ekran-brak .kroki");
+    if (byl && !staryPokazany && NA_STRONIE) {
+      $("brak-nad").textContent = "Silnik jest wyłączony";
+      $("brak-tytul").innerHTML = "Włącz <em>silnik</em> jednym kliknięciem";
+      $("brak-opis").textContent = "Silnik jest już na tym komputerze, tylko teraz nie pracuje: po kwadransie bez zajęcia sam się wyłącza. Kliknij Uruchom silnik. Przeglądarka zapyta, czy otworzyć program: zezwól.";
+      $("uruchom-silnik").textContent = "Uruchom silnik";
+      $("uruchom-silnik").classList.add("btn-glowny");
+      a.classList.remove("btn-glowny");
+      if (p) a.textContent = "Pobierz silnik ponownie";
+      $("uruchom-silnik").parentNode.insertBefore($("uruchom-silnik"), a);
+      if (kroki) kroki.hidden = true;
+    }
     $("brak-podpowiedz").textContent = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
       ? "W Safari montaż otworzy się w osobnej karcie po uruchomieniu silnika."
       : "Jeśli przeglądarka zapyta o dostęp do urządzeń w sieci lokalnej, zezwól: chodzi o program na tym komputerze.";

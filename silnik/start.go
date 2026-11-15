@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 const schematAdresu = "zblizka-montaz"
@@ -62,8 +63,16 @@ func zainstalujSie(dane string) (string, bool) {
 	cel := filepath.Join(dane, exeNazwa("ZblizkaMontaz"))
 	inny := !tenSamPlik(ja, cel)
 	if inny {
-		if err := kopiujDuzy(ja, cel); err != nil {
-			return "", false // np. kopia jest właśnie uruchomiona: zostaje stara, adres i tak na nią wskazuje
+		err := kopiujDuzy(ja, cel)
+		if err != nil && zamknijStarszySilnik(fmt.Sprintf("127.0.0.1:%d", portSilnika)) {
+			// zainstalowany plik był zajęty przez działającą starszą wersję: poprosiliśmy ją o zakończenie i próbujemy ponownie
+			for proba := 0; proba < 24 && err != nil; proba++ {
+				time.Sleep(250 * time.Millisecond)
+				err = kopiujDuzy(ja, cel)
+			}
+		}
+		if err != nil {
+			return "", false // kopia jest właśnie uruchomiona (ta sama albo nowsza wersja): zostaje, adres i tak na nią wskazuje
 		}
 		os.Chmod(cel, 0o755)
 	}

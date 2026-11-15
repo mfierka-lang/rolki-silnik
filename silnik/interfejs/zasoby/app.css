@@ -170,3 +170,6 @@ details.blok[open] summary::before{content:"- "}
 .wybor-lista select:focus{outline:none;border-color:var(--akcent)}
 .wybor-lista option{background:var(--tlo-2);color:var(--tekst)}
 .pole .podpowiedz{display:block;margin-top:8px;font:400 13px/1.45 "Figtree",sans-serif;color:var(--tekst-3,var(--tekst-2))}
+.kroki li{display:block;position:relative;padding-left:42px;min-height:28px;line-height:1.5}
+.kroki li::before{position:absolute;left:0;top:-2px}
+#brak-podpowiedz{margin-top:18px}

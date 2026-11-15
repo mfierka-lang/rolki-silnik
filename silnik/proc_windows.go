@@ -4,7 +4,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -105,14 +107,50 @@ func pokazWFolderze(plik string) {
 }
 
 // oknoWyboruPlikow: systemowe okno wyboru nagrań (PowerShell + Windows Forms; okno wychodzi na wierzch).
+// skryptOknaPlikow: okno wyboru nagrań (PowerShell + Windows Forms). Silnik pracuje w tle, więc Windows nie daje jego
+// oknom pierwszego planu: skrypt sam wyciąga okno na wierzch (połączenie z wątkiem okna pierwszoplanowego) i trzyma je
+// nad innymi. Skrypt jest bez polskich znaków, bo Windows PowerShell czyta pliki bez BOM jako ANSI.
+var skryptOknaPlikow = strings.Join([]string{
+	"Add-Type -AssemblyName System.Windows.Forms",
+	"Add-Type -AssemblyName System.Drawing",
+	"Add-Type -Namespace Zm -Name Okno -MemberDefinition @'",
+	"[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();",
+	"[DllImport(\"user32.dll\")] public static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr p);",
+	"[DllImport(\"kernel32.dll\")] public static extern uint GetCurrentThreadId();",
+	"[DllImport(\"user32.dll\")] public static extern bool AttachThreadInput(uint a, uint b, bool f);",
+	"[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h);",
+	"[DllImport(\"user32.dll\")] public static extern bool BringWindowToTop(IntPtr h);",
+	"[DllImport(\"user32.dll\")] public static extern bool SetWindowPos(IntPtr h, IntPtr po, int x, int y, int cx, int cy, uint flagi);",
+	"[DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string klasa, string tytul);",
+	"public static bool NaWierzch(IntPtr h) {",
+	"  if (h == IntPtr.Zero) return false;",
+	"  uint obcy = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero), moj = GetCurrentThreadId();",
+	"  AttachThreadInput(moj, obcy, true);",
+	"  SetWindowPos(h, new IntPtr(-1), 0, 0, 0, 0, 0x0043);",
+	"  BringWindowToTop(h); SetForegroundWindow(h);",
+	"  AttachThreadInput(moj, obcy, false);",
+	"  return GetForegroundWindow() == h;",
+	"}",
+	"'@",
+	"$tytul = 'Wybierz nagrania'",
+	"$f = New-Object System.Windows.Forms.Form",
+	"$f.TopMost = $true; $f.ShowInTaskbar = $false; $f.Opacity = 0; $f.StartPosition = 'CenterScreen'; $f.Size = New-Object System.Drawing.Size(1, 1)",
+	"$f.Show(); [void][Zm.Okno]::NaWierzch($f.Handle)",
+	"$d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; $d.Title = $tytul",
+	"$d.Filter = 'Nagrania|*.mp4;*.mov;*.m4v;*.mkv;*.avi;*.webm;*.mts;*.m2ts;*.3gp|Wszystkie pliki|*.*'",
+	"# okno wyboru pojawia sie chwile po ShowDialog: zegar kilka razy wyciaga je na pierwszy plan",
+	"$script:proby = 0",
+	"$t = New-Object System.Windows.Forms.Timer; $t.Interval = 200",
+	"$t.add_Tick({ $script:proby++; $ok = [Zm.Okno]::NaWierzch([Zm.Okno]::FindWindow('#32770', $tytul)); if ($env:ZM_SLAD_OKNA) { [Console]::Error.WriteLine('na wierzchu: ' + $ok) }; if ($ok -or $script:proby -ge 8) { $t.Stop() } })",
+	"$t.Start()",
+	"$r = $d.ShowDialog($f); $t.Stop(); $f.Close()",
+	"if ($r -eq 'OK') { [Console]::OutputEncoding = [Text.Encoding]::UTF8; $d.FileNames | ForEach-Object { [Console]::WriteLine($_) } }",
+}, "\r\n")
+
 func oknoWyboruPlikow() *exec.Cmd {
-	skrypt := "Add-Type -AssemblyName System.Windows.Forms;" +
-		"$f = New-Object System.Windows.Forms.Form; $f.TopMost = $true; $f.ShowInTaskbar = $false; $f.Opacity = 0; $f.Show(); $f.Activate();" +
-		"$d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect = $true; $d.Title = 'Wybierz nagrania';" +
-		"$d.Filter = 'Nagrania|*.mp4;*.mov;*.m4v;*.mkv;*.avi;*.webm;*.mts;*.m2ts;*.3gp|Wszystkie pliki|*.*';" +
-		"$r = $d.ShowDialog($f); $f.Close();" +
-		"if ($r -eq 'OK') { [Console]::OutputEncoding = [Text.Encoding]::UTF8; $d.FileNames | ForEach-Object { [Console]::WriteLine($_) } }"
-	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", skrypt)
+	plik := filepath.Join(os.TempDir(), "zblizka-montaz-wybierz.ps1")
+	os.WriteFile(plik, []byte(skryptOknaPlikow), 0o644)
+	cmd := exec.Command("powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", plik)
 	ukryjOkno(cmd)
 	return cmd
 }
