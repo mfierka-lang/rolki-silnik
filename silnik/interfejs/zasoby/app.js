@@ -51,6 +51,28 @@
     return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
   }
 
+  // ---------- stary silnik bez samoaktualizacji ----------
+  // Silniki starsze niż 0.5.0 nie umieją same pobrać nowej wersji: strona prowadzi wtedy do jednorazowego pobrania.
+  var wersjaPanelu = "", staryPokazany = false;
+  if (NA_STRONIE) fetch("/pobierz/wersja.json", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : {}; }).then(function (j) { wersjaPanelu = j.wersja || ""; }).catch(function () {});
+  function liczbyWersji(w) { return String(w || "").split(".").map(function (x) { return parseInt(x, 10) || 0; }); }
+  function starsza(a, b) { var x = liczbyWersji(a), y = liczbyWersji(b); for (var i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; }
+  function silnikDoWymiany(s) { return NA_STRONIE && wersjaPanelu && s && s.wersja && starsza(s.wersja, "0.5.0") && starsza(s.wersja, wersjaPanelu); }
+  function pokazStary(s) {
+    ustawBrak();
+    $("brak-nad").textContent = "Nowa wersja silnika";
+    $("brak-tytul").innerHTML = "Pobierz <em>nową wersję</em> silnika";
+    $("brak-opis").textContent = "Na tym komputerze działa stara wersja (" + s.wersja + "), która nie aktualizuje się sama. Pobierz nową (" + wersjaPanelu + ") i otwórz ją raz. Kolejne aktualizacje zrobią się już same, a pobrane wcześniej narzędzia i modele zostają.";
+    $("uruchom-silnik").hidden = true;
+    if (!staryPokazany) {
+      staryPokazany = true;
+      // po kliknięciu pobierania stary silnik kończy pracę, żeby nowy mógł zająć jego miejsce
+      $("pobierz-silnik").addEventListener("click", function () { setTimeout(function () { wolaj("/api/zamknij", { method: "POST" }).catch(function () {}); }, 1500); });
+    }
+    stanSilnika("brak", "Silnik: stara wersja");
+    pokaz("brak");
+  }
+
   // ---------- wykrywanie silnika ----------
   var proby = 0, pominiete = false, sprzetWyslany = false, polaczony = false, synchroWyslane = false, wersjaSilnika = "";
   function sprawdz() {
@@ -69,6 +91,7 @@
         fetch("/sprzet", { method: "POST", body: new URLSearchParams({ dane: JSON.stringify(s.sprzet) }) }).catch(function () {});
       }
       $("wersja-silnika").textContent = "silnik " + s.wersja + (s.modele ? " · " + s.modele : "");
+      if (silnikDoWymiany(s) && !(s.zadanie && s.zadanie.stan === "praca")) { pokazStary(s); return s; }
       if (s.zadanie && s.zadanie.stan === "praca") {
         zadanie = s.zadanie.id;
         stanSilnika("praca", "Montuję");

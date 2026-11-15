@@ -139,6 +139,12 @@ try {
   start(stary);
   s = await czekajNa(x => x.ok, 20, 'start z podmienionym plikiem');
   sprawdz(s && s.wersja === wersjaStara, 'podmieniony plik nowej wersji nie jest uruchamiany (działa ' + (s && s.wersja) + ')');
+
+  console.log("6. Nowy silnik uruchomiony obok starego przejmuje pracę");
+  s = await czekajNa(x => x.ok && x.wersja === wersjaStara, 10, "stary silnik nadal działa");
+  start(nowy);
+  s = await czekajNa(x => x.wersja === "9.9.9", 30, "przejęcie przez nowy silnik");
+  sprawdz(!!s, "nowy silnik zamknął starszy i działa w jego miejscu (" + (s && s.wersja) + ")");
 } finally {
   await zamknij();
   panel.close();

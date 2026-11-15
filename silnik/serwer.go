@@ -564,6 +564,33 @@ func polecenieSerwer(arg []string) {
 	uruchomSerwer(katalogDanych(*dane), *stylPlik, *okno, *panel)
 }
 
+// zamknijStarszySilnik: gdy pod adresem silnika działa starsza wersja, prosi ją o zakończenie pracy (chyba że montuje).
+// Zwraca true, gdy prośba została przyjęta.
+func zamknijStarszySilnik(adres string) bool {
+	klient := &http.Client{Timeout: 3 * time.Second}
+	odp, err := klient.Get("http://" + adres + "/api/stan")
+	if err != nil {
+		return false
+	}
+	var st struct {
+		Wersja  string `json:"wersja"`
+		Zadanie *struct {
+			Stan string `json:"stan"`
+		} `json:"zadanie"`
+	}
+	err = json.NewDecoder(io.LimitReader(odp.Body, 1<<20)).Decode(&st)
+	odp.Body.Close()
+	if err != nil || st.Wersja == "" || !nowszaWersja(wersja, st.Wersja) || (st.Zadanie != nil && st.Zadanie.Stan == "praca") {
+		return false
+	}
+	odp, err = klient.Post("http://"+adres+"/api/zamknij", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		return false
+	}
+	odp.Body.Close()
+	return odp.StatusCode == 200
+}
+
 func uruchomSerwer(dane, styl string, okno bool, panel string) {
 	if abs, err := filepath.Abs(dane); err == nil {
 		dane = abs
@@ -578,6 +605,15 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 	for proba := 0; err != nil && os.Getenv("ZM_PRZEKAZANO") != "" && proba < 40; proba++ {
 		time.Sleep(250 * time.Millisecond)
 		l, err = net.Listen("tcp", adres)
+	}
+	if err != nil && zamknijStarszySilnik(adres) {
+		// działał starszy silnik (np. sprzed aktualizacji pobranej ręcznie): poprosiliśmy go o zakończenie i zajmujemy jego miejsce
+		for proba := 0; proba < 40; proba++ {
+			time.Sleep(250 * time.Millisecond)
+			if l, err = net.Listen("tcp", adres); err == nil {
+				break
+			}
+		}
 	}
 	if err != nil {
 		// silnik już działa (np. drugi klik w skrót): pokazujemy jego okno i kończymy
