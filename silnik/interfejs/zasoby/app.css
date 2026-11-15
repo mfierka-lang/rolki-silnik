@@ -173,3 +173,10 @@ details.blok[open] summary::before{content:"- "}
 .kroki li{display:block;position:relative;padding-left:42px;min-height:28px;line-height:1.5}
 .kroki li::before{position:absolute;left:0;top:-2px}
 #brak-podpowiedz{margin-top:18px}
+/* jakość pliku: HD / 2K / 4K */
+.bez-jakosci .tylko-jakosc{display:none!important}
+#jakosc-uwaga{margin:14px 0 0;max-width:70ch}
+.rzad-jakosc{margin-top:0;gap:8px}
+.btn-maly{min-height:40px;padding:0 18px;font-size:14px}
+.btn-maly.wybrana,.btn-maly.wybrana:hover{background:var(--tekst);border-color:var(--tekst);color:var(--tlo);opacity:1;cursor:default}
+#jakosc-opis{margin:10px 0 0;max-width:70ch}

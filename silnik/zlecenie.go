@@ -35,6 +35,11 @@ type Zadanie struct {
 	BezMuzyki     bool    `json:"bezMuzyki"`
 	PoprzedniCzas float64 `json:"poprzedniCzas,omitempty"` // długość filmu, który jest poprawiany (do „krócej” i „dłużej”)
 	Muzyka        string  `json:"muzyka"`                  // "" = automatycznie, "dynamiczny", "spokojny" albo "styl:Nazwa"
+	Jakosc        string  `json:"jakosc"`                  // "hd" (domyślnie), "2k" albo "4k"
+	JakoscPewna   bool    `json:"jakoscPewna,omitempty"`   // jakość wybrana przyciskiem przy gotowym filmie: ma pierwszeństwo przed opisem
+	Ziarno        string  `json:"ziarno,omitempty"`        // ziarno wyboru utworu: poprawka filmu zostaje przy tym samym utworze
+	BezUtworu     string  `json:"bezUtworu,omitempty"`     // tytuł utworu, którego nie brać („inna muzyka”)
+	Wzor          string  `json:"wzor,omitempty"`          // katalog poprzedniej wersji, gdy to ten sam film w innej jakości
 }
 
 type Wynik struct {
@@ -51,6 +56,12 @@ type Wynik struct {
 	Opis     string   `json:"opis"` // propozycja opisu posta
 	Hashtagi []string `json:"hashtagi"`
 	Raport   []string `json:"raport"` // co silnik zrobił, zwykłymi zdaniami
+	Jakosc   string   `json:"jakosc"` // hd | 2k | 4k: w jakiej jakości film naprawdę powstał
+	Szer     int      `json:"szer"`   // rozmiar obrazu w pikselach
+	Wys      int      `json:"wys"`
+	Rozmiar  int64    `json:"rozmiar"` // wielkość pliku w bajtach
+	// zdanie o jakości, gdy ograniczyły ją nagrania (za mała rozdzielczość na wybraną jakość)
+	JakoscUwaga string `json:"jakoscUwaga,omitempty"`
 }
 
 // Ustawienia: to, co wynika z opisu i z uwag wpisanych w „Popraw”. Opis zmienia treść i tempo rolki, nie styl marki.
@@ -67,6 +78,8 @@ type Ustawienia struct {
 	DlugoscPodana bool   // długość wpisana wprost w opisie (sekundy albo minuty)
 	Format        string // "pion" albo "poziom", gdy opis mówi o proporcjach
 	Kierunek      int    // ostatnia poprawka: -1 = krócej, 1 = dłużej (liczone od długości poprzedniego filmu)
+	Jakosc        string // "hd", "2k" albo "4k", gdy opis lub uwaga mówi o jakości
+	InnaMuzyka    bool   // ostatnia poprawka prosi o inny utwór
 	Notatki       []string
 }
 
@@ -115,6 +128,13 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 			u.Format = "poziom"
 		case strings.Contains(male, "9:16") || strings.Contains(male, "9 : 16") || strings.Contains(male, "9x16") || ma(" pionow", " w pionie", " pion ", " na tiktok", " na instagram", " rolk"):
 			u.Format = "pion"
+		}
+		if q := jakoscZTekstu(male); q != "" {
+			u.Jakosc = q
+		}
+		if !zOpisu && nr == len(wszystko)-1 && ma(" inna muzyk", " inny utwor", " inna piosenk", " zmien muzyk", " zmien utwor", " inny podklad", " zmien podklad") {
+			u.InnaMuzyka = true
+			u.Notatki = append(u.Notatki, "Inny utwór w podkładzie.")
 		}
 		if mm := reMinuty.FindStringSubmatch(male); mm != nil || strings.Contains(t, " poltorej min") || strings.Contains(t, " pol minuty") {
 			v := 1.5
@@ -188,9 +208,9 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 }
 
 // stylZlecenia: gdy uwagi zmieniają wielkość napisów, powstaje kopia stylu tylko dla tego zlecenia.
-func stylZlecenia(z *Zadanie, u Ustawienia) string {
+func stylZlecenia(z *Zadanie, u Ustawienia, skalaObrazu float64) string {
 	poziom := z.Format == "poziom"
-	if u.SkalaNapisu == 1 && !poziom && !z.BezAnimacji {
+	if u.SkalaNapisu == 1 && !poziom && !z.BezAnimacji && skalaObrazu <= 1 {
 		return z.Styl
 	}
 	b, err := os.ReadFile(z.Styl)
@@ -206,6 +226,9 @@ func stylZlecenia(z *Zadanie, u Ustawienia) string {
 		// film poziomy: kadr 1920 x 1080, napisy mniejsze (wąski pasek u dołu), szersze linie
 		m["szer"], m["wys"] = 1920, 1080
 		skala *= 0.72
+	}
+	if skalaObrazu > 1 {
+		m["skala"] = skalaObrazu
 	}
 	if z.BezAnimacji {
 		m["kadr"] = map[string]any{"zblizenia": []float64{1}, "y": 0.5}
@@ -413,7 +436,42 @@ func polecenieWykonaj(arg []string) {
 	if ust.DlugoscPodana && ust.Dlugosc <= 60 && z.Dlugosc == "dlugi" {
 		z.Dlugosc = "krotki"
 	}
-	stylPlik := stylZlecenia(z, ust)
+	// parametry nagrań (szybkie): od ich rozdzielczości zależy, jaka jakość pliku ma sens
+	var klipy []*Klip
+	for _, p := range z.Pliki {
+		k, err := sonduj(n, p)
+		if err != nil {
+			blad(err)
+		}
+		klipy = append(klipy, k)
+	}
+	// jakość: przełącznik na stronie, a gdy opis albo uwaga mówi o jakości, to one (chyba że jakość wybrano przyciskiem
+	// przy gotowym filmie). Nigdy wyżej, niż pozwalają nagrania.
+	jak := jakoscZKlucza(z.Jakosc)
+	if ust.Jakosc != "" && !z.JakoscPewna {
+		jak = jakoscZKlucza(ust.Jakosc)
+	}
+	siatkaSzer, siatkaWys := 1080, 1920
+	if z.Format == "poziom" {
+		siatkaSzer, siatkaWys = 1920, 1080
+	}
+	jak, notkaJakosci, jakoscOgraniczona := dobierzJakosc(jak, klipy, siatkaSzer, siatkaWys)
+	// ten sam film w innej jakości: teksty z poprzedniej wersji (model piszący za każdym razem pisze trochę inaczej)
+	var wzor *Wynik
+	if z.Wzor != "" {
+		if b, err := os.ReadFile(filepath.Join(z.Wzor, "wynik.json")); err == nil {
+			var p Wynik
+			if json.Unmarshal(b, &p) == nil {
+				wzor = &p
+			}
+		}
+	}
+	ziarno := z.Ziarno
+	if ziarno == "" {
+		ziarno = filepath.Base(z.Praca)
+	}
+	pomijanyUtwor = z.BezUtworu
+	stylPlik := stylZlecenia(z, ust, jak.Skala)
 	st, err := wczytajStyl(stylPlik)
 	if err != nil {
 		blad(err)
@@ -444,25 +502,27 @@ func polecenieWykonaj(arg []string) {
 		ust.Dlugosc = 60
 	}
 	w := &Wynik{Plik: z.Wyjscie, Raport: append([]string(nil), ust.Notatki...)}
+	w.Jakosc, w.Szer, w.Wys = jak.Klucz, st.ObrazSzer(), st.ObrazWys()
+	if notkaJakosci != "" {
+		w.Raport = append(w.Raport, notkaJakosci)
+	}
+	if jakoscOgraniczona {
+		w.JakoscUwaga = notkaJakosci
+	}
 	w.Format = "pion"
 	if z.Format == "poziom" {
 		w.Format = "poziom"
 	}
 
 	// 1. nagrania: parametry i „obejrzenie” (ruch kamery, ostrość, twarze). Wynik zostaje w pamięci silnika.
-	var klipy []*Klip
 	var skany []*Skan
-	for i, p := range z.Pliki {
-		k, err := sonduj(n, p)
-		if err != nil {
-			blad(err)
-		}
+	for i, k := range klipy {
 		komunikat("skan", 0.02+0.26*float64(i)/float64(len(z.Pliki)), fmt.Sprintf("Oglądam nagranie %d z %d", i+1, len(z.Pliki)))
 		sk, err := skanuj(n, k)
 		if err != nil {
 			blad(err)
 		}
-		klipy, skany = append(klipy, k), append(skany, sk)
+		skany = append(skany, sk)
 	}
 
 	// 2. rodzaj rolki. Mówiona: w nagraniu przez większość czasu widać twarz zwróconą do kamery i słychać mowę.
@@ -541,7 +601,12 @@ func polecenieWykonaj(arg []string) {
 		zrodloPosta = strings.Join(tekstMowy, " ")
 	}
 	potrzebnyTekst := (len(naglowek) == 0 && !ust.BezNaglowka && z.Opis != "") || strings.TrimSpace(zrodloPosta) != ""
-	if potrzebnyTekst {
+	if wzor != nil {
+		if len(naglowek) == 0 && !ust.BezNaglowka {
+			naglowek = wzor.Naglowek
+		}
+		w.Temat, w.Opis, w.Hashtagi = wzor.Temat, wzor.Opis, wzor.Hashtagi
+	} else if potrzebnyTekst {
 		komunikat("teksty", 0.38, "Czytam opis i przygotowuję teksty")
 		r, errR := uruchomRozum(n, z.Praca, "tekst")
 		if errR != nil {
@@ -582,7 +647,7 @@ func polecenieWykonaj(arg []string) {
 		}
 		if zMuzyka {
 			komunikat("muzyka", 0.41, "Dobieram muzykę")
-			if u := wybierzUtwor(n, nastroj, filepath.Base(z.Praca), 40, nil); u != nil {
+			if u := wybierzUtwor(n, nastroj, ziarno, 40, nil); u != nil {
 				// podkład pod mowę: ok. 16 dB pod głosem jeszcze przed automatycznym ściszaniem, liczone z głośności tego utworu
 				poziom := math.Max(0.08, math.Min(0.5, wzmocnienieMuzyki(u, -30)))
 				a = append(a, "--muzyka", u.Plik, "--muzyka-od", liczba(u.Start), "--muzyka-poziom", liczba(poziom))
@@ -653,7 +718,7 @@ func polecenieWykonaj(arg []string) {
 			a = append(a, "--przejscia")
 		}
 		if zMuzyka {
-			a = append(a, "--muzyka", "auto", "--nastroj", nastroj)
+			a = append(a, "--muzyka", "auto", "--nastroj", nastroj, "--ziarno", ziarno)
 		}
 		if z.BezAnimacji {
 			a = append(a, "--bez-najazdu")
@@ -692,6 +757,9 @@ func polecenieWykonaj(arg []string) {
 	}
 	if w.Muzyka != "" {
 		w.Raport = append(w.Raport, "Muzyka: "+w.Muzyka+".")
+	}
+	if fi, err := os.Stat(z.Wyjscie); err == nil {
+		w.Rozmiar = fi.Size()
 	}
 	w.Trwalo = time.Since(t0).Seconds()
 	b, _ := json.MarshalIndent(w, "", " ")

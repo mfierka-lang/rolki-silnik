@@ -128,38 +128,53 @@ type Enkoder struct {
 	Arg   []string
 }
 
-func kandydaciEnkoderow() []Enkoder {
-	x264 := Enkoder{"libx264", []string{"-c:v", "libx264", "-preset", "medium", "-crf", "19", "-maxrate", "12M", "-bufsize", "24M"}}
+// kandydaciEnkoderow: przepływność rośnie z liczbą pikseli. Średnio: HD 10 Mb/s, 2K 18 Mb/s, 4K 40 Mb/s
+// (z zapasem ponad to, co zalecają serwisy do wgrywania filmów), chwilowo najwyżej 1,6 raza tyle.
+func kandydaciEnkoderow(skala float64) []Enkoder {
+	if skala <= 0 {
+		skala = 1
+	}
+	mb := func(v float64) string { return fmt.Sprintf("%.0fk", v*1000*skala*skala) }
+	srednia, maks, bufor := mb(10), mb(16), mb(32)
+	// 2K i 4K wybiera ktoś, komu zależy na jakości: mniejsza kompresja (liczby niżej = lepszy obraz, większy plik)
+	szybkosc, crf, cq, qpI, qpP := "medium", "19", "21", "20", "22"
+	if skala > 1.2 {
+		szybkosc, crf, cq, qpI, qpP = "fast", "18", "19", "18", "20" // programowe kodowanie dużego obrazu: szybsze ustawienie
+	}
+	x264 := Enkoder{"libx264", []string{"-c:v", "libx264", "-preset", szybkosc, "-crf", crf, "-maxrate", maks, "-bufsize", bufor}}
 	switch runtime.GOOS {
 	case "darwin":
 		return []Enkoder{
-			{"h264_videotoolbox", []string{"-c:v", "h264_videotoolbox", "-b:v", "9M", "-maxrate", "12M", "-bufsize", "24M", "-profile:v", "high"}},
+			{"h264_videotoolbox", []string{"-c:v", "h264_videotoolbox", "-b:v", srednia, "-maxrate", maks, "-bufsize", bufor, "-profile:v", "high"}},
 			x264,
 		}
 	case "windows":
 		return []Enkoder{
-			{"h264_nvenc", []string{"-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-maxrate", "12M", "-bufsize", "24M"}},
-			{"h264_qsv", []string{"-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "21", "-maxrate", "12M", "-bufsize", "24M"}},
-			{"h264_amf", []string{"-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "20", "-qp_p", "22"}},
+			{"h264_nvenc", []string{"-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", cq, "-b:v", "0", "-maxrate", maks, "-bufsize", bufor}},
+			// Enkoder Intela z podanym limitem ignoruje ustawienie jakości i sam wybiera niską przepływność (zmierzone:
+			// film HD w 6 Mb/s niezależnie od ustawienia), dlatego dostaje średnią przepływność wprost.
+			{"h264_qsv", []string{"-c:v", "h264_qsv", "-preset", "medium", "-b:v", srednia, "-maxrate", maks, "-bufsize", bufor}},
+			{"h264_amf", []string{"-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", qpI, "-qp_p", qpP}},
 			x264,
 		}
 	}
 	return []Enkoder{x264}
 }
 
-// wybierzEnkoder: próbne zakodowanie kilku klatek każdym kandydatem; pierwszy działający wygrywa.
-func wybierzEnkoder(n *Narzedzia) Enkoder {
+// wybierzEnkoder: próbne zakodowanie kilku klatek w rozmiarze filmu każdym kandydatem; pierwszy działający wygrywa
+// (sprzętowe enkodery mają różne największe rozmiary obrazu, więc próba musi być w docelowym rozmiarze).
+func wybierzEnkoder(n *Narzedzia, st *Styl) Enkoder {
+	kand := kandydaciEnkoderow(st.skala())
 	if w := os.Getenv("ZM_ENKODER"); w != "" {
-		for _, e := range kandydaciEnkoderow() {
+		for _, e := range kand {
 			if e.Nazwa == w {
 				return e
 			}
 		}
 	}
-	kand := kandydaciEnkoderow()
 	for _, e := range kand[:len(kand)-1] {
 		ctx, stop := context.WithTimeout(context.Background(), 20*time.Second)
-		arg := []string{"-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=1080x1920:r=30", "-frames:v", "8", "-pix_fmt", "yuv420p"}
+		arg := []string{"-v", "error", "-f", "lavfi", "-i", fmt.Sprintf("color=c=gray:s=%dx%d:r=30", st.ObrazSzer(), st.ObrazWys()), "-frames:v", "8", "-pix_fmt", "yuv420p"}
 		arg = append(arg, e.Arg...)
 		arg = append(arg, "-f", "null", "-")
 		_, _, err := uruchom(ctx, "", n.FFmpeg, arg...)

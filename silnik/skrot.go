@@ -5,12 +5,21 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
 )
+
+// pamiecSkrotow: katalog, w którym zostaje wybór zdań zrobiony przez model. Model za każdym razem wybiera trochę
+// inaczej, a poprawka filmu i ten sam film w innej jakości mają mieć te same zdania.
+var pamiecSkrotow string
 
 type jednostkaMowy struct {
 	frazy []int // indeksy fraz składających się na zdanie (albo kilka zdań wypowiedzianych bez pauzy)
@@ -209,8 +218,18 @@ func wybierzZdaniaModelem(r *Rozum, j []jednostkaMowy, maks float64) []bool {
 	var o struct {
 		Zostaja []int `json:"zostaja"`
 	}
-	if err := r.pytaj("Jesteś montażystą. Skracasz wypowiedź, wybierając całe zdania. Niczego nie dopisujesz.", pyt, nil, schematSkrotu, 220, &o); err != nil {
-		return nil
+	plikPamieci, zPamieci := "", false
+	if pamiecSkrotow != "" {
+		h := sha1.Sum([]byte(pyt))
+		plikPamieci = filepath.Join(pamiecSkrotow, "skrot-"+hex.EncodeToString(h[:10])+".json")
+		if b, err := os.ReadFile(plikPamieci); err == nil && json.Unmarshal(b, &o) == nil && len(o.Zostaja) > 0 {
+			zPamieci = true
+		}
+	}
+	if !zPamieci {
+		if err := r.pytaj("Jesteś montażystą. Skracasz wypowiedź, wybierając całe zdania. Niczego nie dopisujesz.", pyt, nil, schematSkrotu, 220, &o); err != nil {
+			return nil
+		}
 	}
 	zostaje := make([]bool, len(j))
 	czas, wybranych := 0.0, 0
@@ -225,6 +244,12 @@ func wybierzZdaniaModelem(r *Rozum, j []jednostkaMowy, maks float64) []bool {
 	// odpowiedź musi mieścić się w czasie i nie może być wydmuszką
 	if wybranych < 2 || czas > maks*1.06 || czas < math.Min(maks, sumaCzasu(j))*0.45 {
 		return nil
+	}
+	if !zPamieci && plikPamieci != "" {
+		if b, err := json.Marshal(o); err == nil {
+			os.MkdirAll(pamiecSkrotow, 0o755)
+			os.WriteFile(plikPamieci, b, 0o644)
+		}
 	}
 	return zostaje
 }

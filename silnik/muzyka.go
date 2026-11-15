@@ -198,6 +198,9 @@ func analizujUtwor(n *Narzedzia, plik string) (*Utwor, error) {
 	return u, nil
 }
 
+// pomijanyUtwor: tytuł utworu z poprzedniej wersji filmu, gdy użytkownik poprosił o inną muzykę.
+var pomijanyUtwor string
+
 // wybierzUtwor: utwór do filmu. nastroj: "dynamiczny" (szybsze tempo), "spokojny" (wolniejsze), "" (środek).
 // Wśród pasujących wybór zależy od ziarna (np. numeru zlecenia), więc kolejne filmy dostają różne utwory,
 // a poprawka tego samego filmu ten sam. Utwór musi wystarczyć na cały film.
@@ -250,6 +253,17 @@ func wybierzUtwor(n *Narzedzia, nastroj, ziarno string, minCzas float64, postep 
 	}
 	if len(wybor) == 0 {
 		wybor = kandydaci
+	}
+	if pomijanyUtwor != "" && len(wybor) > 1 {
+		var inne []*Utwor
+		for _, u := range wybor {
+			if u.Nazwa != pomijanyUtwor {
+				inne = append(inne, u)
+			}
+		}
+		if len(inne) > 0 {
+			wybor = inne
+		}
 	}
 	h := fnv.New32a()
 	h.Write([]byte(ziarno))

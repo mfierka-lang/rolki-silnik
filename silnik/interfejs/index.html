@@ -77,6 +77,11 @@
         <label><input type="radio" name="dlugosc" value="krotki" checked><span>Do 60 sekund</span></label>
         <label><input type="radio" name="dlugosc" value="dlugi"><span>Dłuższy film</span></label>
       </fieldset>
+      <fieldset class="wybor tylko-jakosc"><legend>Jakość</legend>
+        <label><input type="radio" name="jakosc" value="hd" checked><span>HD <small>1080p</small></span></label>
+        <label><input type="radio" name="jakosc" value="2k"><span>2K <small>1440p</small></span></label>
+        <label><input type="radio" name="jakosc" value="4k"><span>4K <small>2160p</small></span></label>
+      </fieldset>
       <fieldset class="wybor wybor-pola"><legend>W filmie</legend>
         <label><input type="checkbox" id="opcja-napisy" checked><span>Napisy</span></label>
         <label><input type="checkbox" id="opcja-przejscia" checked><span>Przejścia</span></label>
@@ -86,6 +91,7 @@
         <select id="opcja-muzyka"><option value="">Automatycznie</option><option value="dynamiczny">Dynamiczna</option><option value="spokojny">Spokojna</option><option value="brak">Bez muzyki</option></select>
       </label>
     </div>
+    <p class="drobne tylko-jakosc" id="jakosc-uwaga" hidden>2K i 4K mają sens, gdy nagrania są w 4K. Montaż trwa wtedy kilka razy dłużej, a plik jest kilka razy większy. Na Instagram i TikTok wystarcza HD.</p>
     <div class="rzad rzad-koniec">
       <p class="drobne" id="synchro-uwaga" hidden></p>
       <p class="drobne" id="start-uwaga">Nagrania zostają na tym komputerze.</p>
@@ -118,6 +124,15 @@
       <div class="rzad">
         <a class="btn btn-glowny btn-duzy" id="pobierz" href="#">Pobierz</a>
         <button class="btn" id="pokaz-folder" type="button">Pokaż w folderze</button>
+      </div>
+      <div class="blok tylko-jakosc" id="blok-jakosc">
+        <div class="blok-glowa"><h2>Ten sam film w innej jakości</h2></div>
+        <div class="rzad rzad-jakosc" id="jakosc-przyciski">
+          <button class="btn btn-maly" type="button" data-jakosc="hd">HD</button>
+          <button class="btn btn-maly" type="button" data-jakosc="2k">2K</button>
+          <button class="btn btn-maly" type="button" data-jakosc="4k">4K</button>
+        </div>
+        <p class="drobne" id="jakosc-opis"></p>
       </div>
       <div class="blok" id="blok-opis" hidden>
         <div class="blok-glowa"><h2>Opis do wklejenia</h2><button class="link" id="kopiuj-opis" type="button">Kopiuj</button></div>

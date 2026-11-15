@@ -42,12 +42,14 @@ func przygotujUjecie(n *Narzedzia, k *Klip, o Okno, st *Styl, praca, nazwa strin
 	x := int(math.Round(o.KadrX*float64(k.W) - float64(kw)/2))
 	x = max(0, min(k.W-kw, x))
 	y := (k.H - kh) / 2
-	kadr := fmt.Sprintf("fps=%d,crop=%d:%d:%d:%d,scale=%d:%d:flags=lanczos", st.Klatki, kw, kh, x, y, st.Szer, st.Wys)
+	ow, oh := st.ObrazSzer(), st.ObrazWys()
+	kadr := fmt.Sprintf("fps=%d,crop=%d:%d:%d:%d,scale=%d:%d:flags=lanczos", st.Klatki, kw, kh, x, y, ow, oh)
 	if o.Predkosc < 1.0 && !stabilizuj && !bezNajazdu {
-		// kamera stoi: powolny najazd o 4%, żeby ujęcie żyło (obraz 2 razy większy przed najazdem = płynny ruch)
+		// kamera stoi: powolny najazd o 4%, żeby ujęcie żyło (obraz przed najazdem 2 razy większy od siatki filmu = płynny ruch;
+		// przy 4K to już rozmiar filmu, większy tylko spowalniałby pracę)
 		klatek := math.Round((o.Do - o.Od) * float64(st.Klatki))
 		kadr = fmt.Sprintf(`fps=%d,crop=%d:%d:%d:%d,scale=%d:%d:flags=bicubic,zoompan=z='1+0.04*on/%.0f':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=1:s=%dx%d:fps=%d`,
-			st.Klatki, kw, kh, x, y, 2*st.Szer, 2*st.Wys, klatek, st.Szer, st.Wys, st.Klatki)
+			st.Klatki, kw, kh, x, y, max(2*st.Szer, ow), max(2*st.Wys, oh), klatek, ow, oh, st.Klatki)
 	}
 	wejscie := func() []string {
 		a := []string{"-v", "error", "-nostdin", "-y", "-ss", liczba(o.Od), "-t", liczba(o.Do - o.Od)}
@@ -105,6 +107,9 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 	arg := []string{"-hide_banner", "-y", "-nostats", "-loglevel", "error"}
 	razem := 0.0
 	var ev, ea []string
+	// Wszystkie pliki pośrednie są otwarte naraz i każde wejście trzyma w pamięci kilka klatek: przy 4K to ok. 100 MB
+	// na ujęcie plus ok. 2 GB na filtry i enkoder (zmierzone: 3,9 GB przy 17 ujęciach, w HD 1 GB). Ograniczenie wątków
+	// dekoderów tego nie zmniejsza, tylko spowalnia. Stąd limit jakości na komputerach z małą pamięcią (dobierzJakosc).
 	for i, p := range pliki {
 		arg = append(arg, "-i", p)
 		fmt.Fprintf(&f, "[%d:v]setpts=PTS-STARTPTS,fps=%d,setsar=1[v%d];\n", i, st.Klatki, i)
@@ -135,7 +140,7 @@ func zlozUjecia(n *Narzedzia, enk Enkoder, st *Styl, praca string, pliki []strin
 			e = append(e, fmt.Sprintf("between(t,%s,%s)*pow(1-(t-%s)/0.18,2)", liczba(c), liczba(c+0.18), liczba(c)))
 		}
 		z := "(1+0.045*(" + strings.Join(e, "+") + "))"
-		fmt.Fprintf(&f, "[vc]scale=w='2*trunc(iw*%s/2)':h='2*trunc(ih*%s/2)':eval=frame:flags=bilinear,crop=%d:%d:(iw-%d)/2:(ih-%d)/2,setsar=1[vq];\n", z, z, st.Szer, st.Wys, st.Szer, st.Wys)
+		fmt.Fprintf(&f, "[vc]scale=w='2*trunc(iw*%s/2)':h='2*trunc(ih*%s/2)':eval=frame:flags=bilinear,crop=%d:%d:(iw-%d)/2:(ih-%d)/2,setsar=1[vq];\n", z, z, st.ObrazSzer(), st.ObrazWys(), st.ObrazSzer(), st.ObrazWys())
 		obraz = "[vq]"
 	}
 	if za != nil { // nagłówek za osobą: maska jest ostatnim wejściem
@@ -190,6 +195,7 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	muzykaFlaga := fs.String("muzyka", "", "muzyka: auto (z biblioteki) albo plik; puste = bez muzyki")
 	nastroj := fs.String("nastroj", "", "nastrój muzyki: dynamiczny, spokojny albo pusty")
 	pomin := fs.Int("pomin", 0, "ile ujęć z początku pominąć (uwaga: skróć początek)")
+	ziarno := fs.String("ziarno", "", "ziarno wyboru utworu (puste = nazwa katalogu roboczego); poprawka filmu podaje ziarno pierwszej wersji")
 	zRozumem := fs.Bool("rozum", false, "opisz ujęcia modelem (kolejność: plan ogólny na początek, spokojny widok na koniec; hasła z szablonu)")
 	fs.Parse(arg)
 	pliki := fs.Args()
@@ -343,7 +349,11 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 	if *muzykaFlaga != "" {
 		komunikat("muzyka", 0.74, "Dobieram muzykę i liczę jej rytm")
 		if *muzykaFlaga == "auto" {
-			utwor = wybierzUtwor(n, *nastroj, filepath.Base(pracaAbs), *dlugosc*1.1+4, nil)
+			ziarnoMuzyki := *ziarno
+			if ziarnoMuzyki == "" {
+				ziarnoMuzyki = filepath.Base(pracaAbs)
+			}
+			utwor = wybierzUtwor(n, *nastroj, ziarnoMuzyki, *dlugosc*1.1+4, nil)
 		} else {
 			utwor, _ = analizujUtwor(n, *muzykaFlaga)
 		}
@@ -600,14 +610,14 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		}
 		maNapisy = true
 	}
-	enk := wybierzEnkoder(n)
+	enk := wybierzEnkoder(n, st)
 	komunikat("render", 0.92, "Składam rolkę ("+enk.Nazwa+")")
 	wy, _ := filepath.Abs(*wyjscie)
 	if err := zlozUjecia(n, enk, st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, akcenty, wy); err != nil {
 		if enk.Nazwa == "libx264" {
 			blad(err)
 		}
-		kand := kandydaciEnkoderow()
+		kand := kandydaciEnkoderow(st.skala())
 		if err := zlozUjecia(n, kand[len(kand)-1], st, pracaAbs, seg, maDzw, czasy, przejsciaPo, utwor, maNapisy, za, akcenty, wy); err != nil {
 			blad(err)
 		}

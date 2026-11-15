@@ -84,7 +84,7 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 		}
 		ky := liczba(st.Kadr.Y)
 		fmt.Fprintf(&f, ",crop=w='2*floor(min(iw,ih*%d/%d)/2)':h='2*floor(min(ih,iw*%d/%d)/2)':x='(iw-ow)/2':y='(ih-oh)*%s'", st.Szer, st.Wys, st.Wys, st.Szer, ky)
-		fmt.Fprintf(&f, ",zoompan=z='%s':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*%s':d=1:s=%dx%d:fps=%d,setsar=1,format=yuv420p[v%d];\n", zexpr, ky, st.Szer, st.Wys, st.Klatki, we)
+		fmt.Fprintf(&f, ",zoompan=z='%s':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*%s':d=1:s=%dx%d:fps=%d,setsar=1,format=yuv420p[v%d];\n", zexpr, ky, st.ObrazSzer(), st.ObrazWys(), st.Klatki, we)
 		etykietyV = append(etykietyV, fmt.Sprintf("[v%d]", we))
 
 		// dźwięk: każdy odcinek osobno (dokładność do próbki), krótkie wyciszenia na brzegach przeciw trzaskom

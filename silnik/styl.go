@@ -47,11 +47,13 @@ type StylHak struct {
 }
 
 type Styl struct {
-	Nazwa   string `json:"nazwa"`
-	Szer    int    `json:"szer"`
-	Wys     int    `json:"wys"`
-	Klatki  int    `json:"klatki"`
-	Katalog string `json:"-"`
+	Nazwa  string `json:"nazwa"`
+	Szer   int    `json:"szer"`
+	Wys    int    `json:"wys"`
+	Klatki int    `json:"klatki"`
+	// obraz gotowego filmu względem siatki Szer x Wys: 1 = HD, 4/3 = 2K, 2 = 4K (ustawia zlecenie, nie szablon marki)
+	Skala   float64 `json:"skala"`
+	Katalog string  `json:"-"`
 
 	Napisy struct {
 		Tekst     StylFont  `json:"tekst"`
@@ -197,3 +199,15 @@ func wczytajStyl(plik string) (*Styl, error) {
 	}
 	return s, nil
 }
+
+// skala: ile razy obraz filmu jest większy od siatki stylu (1, gdy zlecenie jej nie ustawiło).
+func (s *Styl) skala() float64 {
+	if s.Skala <= 0 {
+		return 1
+	}
+	return s.Skala
+}
+
+// ObrazSzer, ObrazWys: rozmiar gotowego filmu w pikselach. Szer i Wys to siatka, w której liczone są napisy i plansze.
+func (s *Styl) ObrazSzer() int { return wymiarObrazu(s.Szer, s.skala()) }
+func (s *Styl) ObrazWys() int  { return wymiarObrazu(s.Wys, s.skala()) }

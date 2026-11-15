@@ -21,7 +21,7 @@ import (
 )
 
 // wersja: zmienna (nie stała), żeby testy mogły zbudować program udający nowszą wersję: -X main.wersja=...
-var wersja = "0.6.5"
+var wersja = "0.6.6"
 
 // komunikat: postęp jako wiersze JSON (czytane później przez stronę), a dla człowieka czytelny tekst na stderr.
 // zakresPostepu: gdy montaż jest częścią większego zlecenia, jego postęp 0-1 trafia w wycinek paska całości.
@@ -240,6 +240,7 @@ func poleceniaMontuj(arg []string) {
 				r, _ = uruchomRozum(n, pracaAbs, "tekst")
 			}
 		}
+		pamiecSkrotow = filepath.Join(n.Dane, "mowa")
 		opisSkrotu := skrocTresc(frazy, plan.Czas, *maks, st, r)
 		if r != nil {
 			r.Zamknij()
@@ -319,7 +320,7 @@ func poleceniaMontuj(arg []string) {
 	}
 
 	// 4. render
-	enk := wybierzEnkoder(n)
+	enk := wybierzEnkoder(n, st)
 	komunikat("render", 0.55, "Składam rolkę ("+enk.Nazwa+")")
 	muz := ""
 	if *muzyka != "" {
@@ -334,7 +335,7 @@ func poleceniaMontuj(arg []string) {
 		}
 	})
 	if err != nil && enk.Nazwa != "libx264" { // sprzętowy enkoder zawiódł w trakcie: jeszcze raz programowo
-		kand := kandydaciEnkoderow()
+		kand := kandydaciEnkoderow(st.skala())
 		enk = kand[len(kand)-1]
 		komunikat("render", 0.55, "Składam rolkę (kodowanie programowe)")
 		err = renderuj(n, enk, z, nil)

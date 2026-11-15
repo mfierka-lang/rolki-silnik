@@ -308,6 +308,7 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 		Przejscia  *bool    `json:"przejscia"`
 		Animacje   *bool    `json:"animacje"`
 		Muzyka     string   `json:"muzyka"` // "", "dynamiczny", "spokojny", "styl:Nazwa", "brak"
+		Jakosc     string   `json:"jakosc"` // "", "hd", "2k", "4k"; razem z „poprzednie” i bez uwagi: ten sam film w innej jakości
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&we); err != nil {
 		odpowiedzBlad(w, 400, "nieczytelne zlecenie")
@@ -325,6 +326,9 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 	if we.Muzyka != "brak" {
 		z.Muzyka = we.Muzyka
 	}
+	if we.Jakosc != "" {
+		z.Jakosc = jakoscZKlucza(we.Jakosc).Klucz
+	}
 	if we.Poprzednie != "" { // poprawka: te same nagrania i opis, do tego kolejna uwaga
 		if b, err := os.ReadFile(filepath.Join(s.dane, "zlecenia", filepath.Base(we.Poprzednie), "zadanie.json")); err == nil {
 			var stare Zadanie
@@ -332,9 +336,34 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 				z.Pliki, z.Opis, z.Popraw = stare.Pliki, stare.Opis, stare.Popraw
 				z.Format, z.Dlugosc, z.BezNapisow, z.BezPrzejsc, z.BezAnimacji = stare.Format, stare.Dlugosc, stare.BezNapisow, stare.BezPrzejsc, stare.BezAnimacji
 				z.BezMuzyki, z.Muzyka = stare.BezMuzyki, stare.Muzyka
+				// poprawka zostaje przy tym samym utworze (to samo ziarno), chyba że uwaga prosi o inną muzykę
+				z.Ziarno, z.BezUtworu = stare.Ziarno, stare.BezUtworu
+				if z.Ziarno == "" {
+					z.Ziarno = filepath.Base(we.Poprzednie)
+				}
+				if we.Jakosc == "" {
+					z.Jakosc, z.JakoscPewna = stare.Jakosc, stare.JakoscPewna
+				} else {
+					z.JakoscPewna = true
+				}
 				var poprzedni Wynik
 				if wb, err := os.ReadFile(filepath.Join(s.dane, "zlecenia", filepath.Base(we.Poprzednie), "wynik.json")); err == nil && json.Unmarshal(wb, &poprzedni) == nil {
 					z.PoprzedniCzas = poprzedni.Czas
+				}
+				uwaga := strings.TrimSpace(we.Popraw)
+				switch {
+				case uwaga == "" && we.Jakosc != "":
+					// ten sam film w innej jakości: te same ustawienia co poprzednio, teksty z poprzedniej wersji
+					z.Wzor = filepath.Join(s.dane, "zlecenia", filepath.Base(we.Poprzednie))
+					z.PoprzedniCzas = stare.PoprzedniCzas
+				case uwaga != "":
+					nowe := zrozumUwagi("", []string{uwaga})
+					if nowe.InnaMuzyka {
+						z.Ziarno, z.BezUtworu = "", poprzedni.Muzyka
+					}
+					if nowe.Jakosc != "" { // nowa uwaga o jakości ma pierwszeństwo przed wcześniejszym przyciskiem
+						z.JakoscPewna = false
+					}
 				}
 			}
 		}
@@ -368,6 +397,9 @@ func (s *Serwer) startZlecenia(z *Zadanie) (string, error) {
 		return "", err
 	}
 	z.Praca = kat
+	if z.Ziarno == "" {
+		z.Ziarno = id
+	}
 	z.Wyjscie = filepath.Join(kat, "rolka.mp4")
 	b, _ := json.MarshalIndent(z, "", " ")
 	plikZadania := filepath.Join(kat, "zadanie.json")
@@ -492,7 +524,7 @@ func (s *Serwer) rolka(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "no-store")
 	if pobierz {
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="Zblizka-rolka-%s.mp4"`, id))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="Zblizka-rolka-%s%s.mp4"`, id, dopisekJakosci(filepath.Dir(plik))))
 	}
 	http.ServeContent(w, r, "rolka.mp4", fi.ModTime(), f)
 }

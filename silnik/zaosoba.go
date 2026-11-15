@@ -198,9 +198,9 @@ func (z *ZaOsoba) filtr(st *Styl, wejscieMaski int, obraz string) string {
 		"[zh]trim=end_frame=%d,setpts=PTS-STARTPTS,split=2[zh1][zh2];\n"+
 		"[zt]trim=start_frame=%d,setpts=PTS-STARTPTS,format=yuv420p,setsar=1[zt1];\n"+
 		"[zh1]ass=naglowek-za.ass:fontsdir=fonty[zh3];\n"+
-		"[%d:v]fps=%d,scale=%d:%d:flags=bicubic,format=gray,gblur=sigma=1.6[zm];\n"+
+		"[%d:v]fps=%d,scale=%d:%d:flags=bicubic,format=gray,gblur=sigma=%s[zm];\n"+
 		"[zh2][zm]alphamerge[zos];\n"+
 		"[zh3][zos]overlay=format=auto:eof_action=pass,format=yuv420p,setsar=1[zh4];\n"+
 		"[zh4][zt1]concat=n=2:v=1:a=0[vz];\n",
-		z.Klatek, z.Klatek, wejscieMaski, st.Klatki, st.Szer, st.Wys)
+		z.Klatek, z.Klatek, wejscieMaski, st.Klatki, st.ObrazSzer(), st.ObrazWys(), liczba(1.6*st.skala()))
 }

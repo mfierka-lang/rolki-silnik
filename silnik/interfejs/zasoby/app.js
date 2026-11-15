@@ -85,6 +85,7 @@
       // po przełączeniu silnika na nową wersję synchronizacja idzie jeszcze raz (muzykę dociąga nowy silnik)
       if (wersjaSilnika && wersjaSilnika !== s.wersja) synchroWyslane = false;
       wersjaSilnika = s.wersja;
+      document.body.classList.toggle("bez-jakosci", starsza(s.wersja, "0.6.6"));
       synchronizuj();
       // panel zapisuje przy koncie, na jakim komputerze działa silnik (pomoc techniczna); raz na otwarcie strony
       if (NA_STRONIE && s.sprzet && !sprzetWyslany) {
@@ -313,9 +314,19 @@
   }
   $("montuj").addEventListener("click", function () {
     var wybrane = function (nazwa) { var e = document.querySelector('input[name="' + nazwa + '"]:checked'); return e ? e.value : ""; };
-    montuj({ pliki: pliki.map(function (p) { return p.id; }), opis: $("opis").value.trim(), format: wybrane("format"), dlugosc: wybrane("dlugosc"),
+    var jakosc = document.body.classList.contains("bez-jakosci") ? "" : wybrane("jakosc");
+    try { localStorage.setItem("zm-jakosc", jakosc || "hd"); } catch (e) {}
+    montuj({ pliki: pliki.map(function (p) { return p.id; }), opis: $("opis").value.trim(), format: wybrane("format"), dlugosc: wybrane("dlugosc"), jakosc: jakosc,
       napisy: $("opcja-napisy").checked, przejscia: $("opcja-przejscia").checked, animacje: $("opcja-animacje").checked, muzyka: $("opcja-muzyka").value });
   });
+  // jakość: ostatni wybór zostaje na następny film; przy 2K i 4K podpowiedź, kiedy to ma sens
+  function uwagaJakosci() { var e = document.querySelector('input[name="jakosc"]:checked'); $("jakosc-uwaga").hidden = !e || e.value === "hd"; }
+  try {
+    var zapisana = localStorage.getItem("zm-jakosc"), poleJ = zapisana && document.querySelector('input[name="jakosc"][value="' + zapisana + '"]');
+    if (poleJ) poleJ.checked = true;
+  } catch (e) {}
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="jakosc"]'), function (e) { e.addEventListener("change", uwagaJakosci); });
+  uwagaJakosci();
   function pilnuj() {
     clearInterval(zegar);
     zegar = setInterval(function () {
@@ -356,10 +367,19 @@
     $("film").src = adres + ".mp4?t=" + Date.now();
     $("pobierz").href = adres + "/pobierz";
     var czesci = [];
+    var jak = wynik.jakosc || "hd", nazwyJ = { hd: "HD", "2k": "2K", "4k": "4K" };
     if (wynik.czas) czesci.push("Film ma " + Math.round(wynik.czas) + " s");
+    if (wynik.szer && wynik.wys) czesci.push((nazwyJ[jak] || "HD") + " (" + wynik.szer + " × " + wynik.wys + ")");
+    if (wynik.rozmiar) czesci.push("plik " + rozmiarTekst(wynik.rozmiar));
     if (wynik.trwalo) czesci.push("montaż trwał " + czasTekst(wynik.trwalo) + " min");
     $("wynik-podsumowanie").textContent = (wynik.temat ? wynik.temat + " " : "") + (czesci.length ? czesci.join(", ") + "." : "");
-    $("wynik-nad").textContent = (wynik.rodzaj === "mowa" ? "Film mówiony" : "Film z ujęć") + (wynik.format === "poziom" ? ", poziomy 16:9" : ", pionowy 9:16");
+    $("wynik-nad").textContent = (wynik.rodzaj === "mowa" ? "Film mówiony" : "Film z ujęć") + (wynik.format === "poziom" ? ", poziomy 16:9" : ", pionowy 9:16") + (jak !== "hd" && nazwyJ[jak] ? ", " + nazwyJ[jak] : "");
+    Array.prototype.forEach.call(document.querySelectorAll("#jakosc-przyciski [data-jakosc]"), function (b) {
+      var ta = b.getAttribute("data-jakosc") === jak;
+      b.disabled = ta;
+      b.classList.toggle("wybrana", ta);
+    });
+    $("jakosc-opis").textContent = wynik.jakoscUwaga || "Silnik zmontuje ten sam film jeszcze raz w wybranej jakości. 2K i 4K mają sens przy nagraniach 4K: trwają dłużej i dają większy plik.";
     document.querySelector(".ekran-wynik").classList.toggle("poziomy", wynik.format === "poziom");
     var opis = (wynik.opis || "") + ((wynik.hashtagi || []).length ? "\n\n" + wynik.hashtagi.join(" ") : "");
     $("blok-opis").hidden = !opis.trim();
@@ -384,6 +404,9 @@
   $("pokaz-folder").addEventListener("click", function () { wolaj("/api/pokaz", { json: { id: zadanie } }).catch(function () {}); });
   $("popraw").addEventListener("input", function () { $("popraw-btn").disabled = !$("popraw").value.trim(); });
   $("popraw-btn").addEventListener("click", function () { montuj({ poprzednie: zadanie, popraw: $("popraw").value.trim() }); });
+  Array.prototype.forEach.call(document.querySelectorAll("#jakosc-przyciski [data-jakosc]"), function (b) {
+    b.addEventListener("click", function () { montuj({ poprzednie: zadanie, jakosc: b.getAttribute("data-jakosc") }); });
+  });
   $("nowa").addEventListener("click", function () {
     pliki.forEach(function (p) { p.el.remove(); });
     pliki = [];
