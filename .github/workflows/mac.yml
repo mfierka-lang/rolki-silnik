@@ -97,20 +97,24 @@ jobs:
           export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
           # nagranie próbne powiększone do 4K: sprawdzamy drogę obrazu i pamięć, nie ostrość
           "$DANE/bin/ffmpeg" -v error -y -i probki/test-mowa-ujecia.mp4 -vf scale=3840:2160:flags=bicubic -c:v libx264 -preset ultrafast -crf 20 -c:a copy "$RUNNER_TEMP/proba-4k.mp4"
-          for PROBA in "ujecia4k|poziom|4k|breloki i magnesy NFC, same ujęcia" "mowa2k|pion|4k|rolka mówiona o magnesach NFC"; do
-            IFS='|' read -r NAZWA FORMAT JAKOSC OPIS <<< "$PROBA"
+          # nazwa | format | jakość | opis | 1 = bez bezpiecznika pamięci (ta maszyna ma 7 GB, więc zwykle 4K zamienia się w 2K)
+          for PROBA in "ujecia4k|poziom|4k|breloki i magnesy NFC, same ujęcia|1" "ujecia4k-limit|poziom|4k|breloki i magnesy NFC, same ujęcia|" "mowa2k|pion|4k|rolka mówiona o magnesach NFC|"; do
+            IFS='|' read -r NAZWA FORMAT JAKOSC OPIS BEZLIMITU <<< "$PROBA"
             K="$DANE/zlecenia/$NAZWA"; mkdir -p "$K"
             printf '{"pliki": ["%s"], "opis": "%s", "format": "%s", "jakosc": "%s", "dane": "%s", "praca": "%s"}' "$RUNNER_TEMP/proba-4k.mp4" "$OPIS" "$FORMAT" "$JAKOSC" "$DANE" "$K" > "$K/zadanie.json"
-            /usr/bin/time -l "$DANE/montaz" wykonaj "$K/zadanie.json" > "$K/postep.txt" 2> "$K/bledy.txt" || true
+            echo "== $NAZWA"
+            ZM_JAKOSC_BEZ_LIMITU="$BEZLIMITU" /usr/bin/time -l "$DANE/montaz" wykonaj "$K/zadanie.json" > "$K/postep.txt" 2> "$K/bledy.txt" || true
             tail -1 "$K/postep.txt" | cut -c1-300
             grep -E "real|maximum resident set size" "$K/bledy.txt" || tail -c 1200 "$K/bledy.txt"
-            "$DANE/bin/ffprobe" -v error -select_streams v:0 -show_entries stream=codec_name,width,height,level,bit_rate:format=duration,size -of default=nw=1 "$K/rolka.mp4" | tr '\n' ' '; echo
-            grep -o '"jakosc[^,]*' "$K/wynik.json" | tr '\n' ' '; echo
+            "$DANE/bin/ffprobe" -v error -select_streams v:0 -show_entries stream=codec_name,width,height,level,bit_rate:format=duration,size -of csv=p=0 "$K/rolka.mp4" || true
+            grep -o '"jakosc[^}]*' "$K/wynik.json" | cut -c1-400 || true
             cp "$K/wynik.json" "wyniki/mac-$NAZWA.json" || true
           done
-          # film 4K z poziomych nagrań 4K ma mieć 3840 x 2160, rolka pionowa z tych samych nagrań najwyżej 2K
-          test "$("$DANE/bin/ffprobe" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "$DANE/zlecenia/ujecia4k/rolka.mp4")" = "3840,2160"
-          test "$("$DANE/bin/ffprobe" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "$DANE/zlecenia/mowa2k/rolka.mp4")" = "1440,2560"
+          rozmiar() { "$DANE/bin/ffprobe" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "$DANE/zlecenia/$1/rolka.mp4"; }
+          # prawdziwe 4K (bez bezpiecznika), 4K z bezpiecznikiem pamięci = 2K, rolka pionowa z poziomych nagrań 4K = najwyżej 2K
+          test "$(rozmiar ujecia4k)" = "3840,2160"
+          test "$(rozmiar ujecia4k-limit)" = "2560,1440"
+          test "$(rozmiar mowa2k)" = "1440,2560"
 
       - name: Serwer lokalny i montaż przez interfejs (tak jak ze strony)
         if: always()
