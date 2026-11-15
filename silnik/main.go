@@ -21,7 +21,7 @@ import (
 )
 
 // wersja: zmienna (nie stała), żeby testy mogły zbudować program udający nowszą wersję: -X main.wersja=...
-var wersja = "0.6.2"
+var wersja = "0.6.3"
 
 // komunikat: postęp jako wiersze JSON (czytane później przez stronę), a dla człowieka czytelny tekst na stderr.
 // zakresPostepu: gdy montaż jest częścią większego zlecenia, jego postęp 0-1 trafia w wycinek paska całości.
@@ -131,6 +131,7 @@ func poleceniaMontuj(arg []string) {
 	hak := fs.String("hak", "", "nagłówek na początek: \"Linia 1|Linia 2\"")
 	bezNapisow := fs.Bool("bez-napisow", false, "rolka bez napisów mowy")
 	muzykaOd := fs.Float64("muzyka-od", 0, "od której sekundy utworu zacząć")
+	muzykaPoziom := fs.Float64("muzyka-poziom", 0, "głośność podkładu względem pełnej (0 = z szablonu)")
 	maks := fs.Float64("maks", 0, "największa długość filmu w sekundach (0 = bez limitu)")
 	pomin := fs.Int("pomin", 0, "ile zdań z początku wypowiedzi pominąć (uwaga: skróć początek)")
 	przebitkiPlik := fs.String("przebitki", "", "plik JSON z listą nagrań bez mowy: ich fragmenty wejdą jako przebitki")
@@ -324,7 +325,7 @@ func poleceniaMontuj(arg []string) {
 	if *muzyka != "" {
 		muz, _ = filepath.Abs(*muzyka)
 	}
-	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, MuzykaOd: *muzykaOd, Wyjscie: wy, Praca: pracaAbs, Za: za, Przebitki: przebitki}
+	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, MuzykaOd: *muzykaOd, MuzykaPoziom: *muzykaPoziom, Wyjscie: wy, Praca: pracaAbs, Za: za, Przebitki: przebitki}
 	ostatni := 0.0
 	err = renderuj(n, enk, z, func(p float64) {
 		if p-ostatni >= 0.1 {

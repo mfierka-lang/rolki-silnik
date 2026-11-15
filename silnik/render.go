@@ -16,16 +16,17 @@ import (
 )
 
 type Zlecenie struct {
-	Klipy     []*Klip
-	Plan      *PlanMowy
-	Styl      *Styl
-	Fonty     []string // pliki fontów do skopiowania do katalogu pracy
-	Muzyka    string   // opcjonalnie
-	MuzykaOd  float64  // od której sekundy utworu zacząć (po cichym wstępie)
-	Wyjscie   string
-	Praca     string      // katalog roboczy: napisy.ass, fonty/, filtr.txt
-	Za        *ZaOsoba    // nagłówek za osobą (nil = zwykły nagłówek w napisy.ass)
-	Przebitki []Przebitka // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
+	Klipy        []*Klip
+	Plan         *PlanMowy
+	Styl         *Styl
+	Fonty        []string // pliki fontów do skopiowania do katalogu pracy
+	Muzyka       string   // opcjonalnie
+	MuzykaOd     float64  // od której sekundy utworu zacząć (po cichym wstępie)
+	MuzykaPoziom float64  // głośność podkładu policzona dla tego utworu (0 = wartość z szablonu)
+	Wyjscie      string
+	Praca        string      // katalog roboczy: napisy.ass, fonty/, filtr.txt
+	Za           *ZaOsoba    // nagłówek za osobą (nil = zwykły nagłówek w napisy.ass)
+	Przebitki    []Przebitka // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
 }
 
 func liczba(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
@@ -156,9 +157,13 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 		if wycisz <= 0 {
 			wycisz = 0.5
 		}
+		poziomMuzyki := d.MuzykaPoziom
+		if z.MuzykaPoziom > 0 {
+			poziomMuzyki = z.MuzykaPoziom
+		}
 		fmt.Fprintf(&f, "[g0]%s,asplit=2[g1][g2];\n", glos)
 		fmt.Fprintf(&f, "[%d:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=0:%s,volume=%s,afade=t=out:st=%s:d=%s[m0];\n",
-			wm, liczba(czas), liczba(d.MuzykaPoziom), liczba(math.Max(0, czas-wycisz)), liczba(wycisz))
+			wm, liczba(czas), liczba(poziomMuzyki), liczba(math.Max(0, czas-wycisz)), liczba(wycisz))
 		f.WriteString("[m0][g2]sidechaincompress=threshold=0.02:ratio=9:attack=15:release=380[m1];\n")
 		f.WriteString("[g1][m1]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.89:level=0[a]\n")
 	} else {

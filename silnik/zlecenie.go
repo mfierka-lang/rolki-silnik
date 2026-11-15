@@ -583,7 +583,9 @@ func polecenieWykonaj(arg []string) {
 		if zMuzyka {
 			komunikat("muzyka", 0.41, "Dobieram muzykę")
 			if u := wybierzUtwor(n, nastroj, filepath.Base(z.Praca), 40, nil); u != nil {
-				a = append(a, "--muzyka", u.Plik, "--muzyka-od", liczba(u.Start))
+				// podkład pod mowę: ok. 16 dB pod głosem jeszcze przed automatycznym ściszaniem, liczone z głośności tego utworu
+				poziom := math.Max(0.08, math.Min(0.5, wzmocnienieMuzyki(u, -30)))
+				a = append(a, "--muzyka", u.Plik, "--muzyka-od", liczba(u.Start), "--muzyka-poziom", liczba(poziom))
 				w.Muzyka = u.Nazwa
 			}
 		}
