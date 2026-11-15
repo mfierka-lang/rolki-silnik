@@ -87,6 +87,7 @@ type Serwer struct {
 	pliki       map[string]*plikWejsciowy
 	zlecenie    *stanZlecenia
 	ostatnio    time.Time
+	dodawane    int // ile nagrań jest właśnie dodawanych (wgrywanie albo otwarte okno wyboru): to też praca
 	przyg       stanPrzygotowania
 	sprzet      Sprzet
 	dodatkowe   []string // dodatkowe dozwolone adresy panelu (flaga --panel, do testów)
@@ -244,6 +245,14 @@ func (s *Serwer) zarejestruj(sciezka string, wrzucony bool) *plikWejsciowy {
 }
 
 func (s *Serwer) wybierz(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.dodawane++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.dodawane--
+		s.mu.Unlock()
+	}()
 	cmd := oknoWyboruPlikow()
 	out, err := cmd.Output()
 	if err != nil && len(out) == 0 {
@@ -265,6 +274,14 @@ func (s *Serwer) wybierz(w http.ResponseWriter, r *http.Request) {
 // wrzuc: plik przeciągnięty na stronę. Przeglądarka nie zdradza stronie, gdzie plik leży na dysku, więc silnik
 // zapisuje własną kopię w katalogu danych (kasowaną przy następnej rolce).
 func (s *Serwer) wrzuc(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.dodawane++
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.dodawane--
+		s.mu.Unlock()
+	}()
 	nazwa := filepath.Base(strings.ReplaceAll(r.URL.Query().Get("nazwa"), "\\", "/"))
 	if nazwa == "" || nazwa == "." || strings.HasPrefix(nazwa, ".") {
 		odpowiedzBlad(w, 400, "brak nazwy pliku")

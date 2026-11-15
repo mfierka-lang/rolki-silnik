@@ -486,16 +486,28 @@ func (s *Serwer) przejdzNaNowaWersje() {
 	if plik == "" {
 		return
 	}
+	// wolny: bez zlecenia, bez instalacji dodatków, bez dodanych i właśnie dodawanych nagrań
+	wolny := func() bool { return s.zlecenie == nil && !s.przyg.Trwa && len(s.pliki) == 0 && s.dodawane == 0 }
 	s.mu.Lock()
-	wolny := s.zlecenie == nil && !s.przyg.Trwa && len(s.pliki) == 0
-	if wolny {
+	teraz := wolny()
+	if teraz {
 		s.synchro.Tekst = "Włączam nową wersję silnika"
 	}
 	s.mu.Unlock()
-	if !wolny {
+	if !teraz {
 		return
 	}
 	time.Sleep(1200 * time.Millisecond) // strona zdąży odczytać komunikat
+	// przez tę chwilę ktoś mógł dodać nagranie: wtedy nowa wersja poczeka do następnego uruchomienia
+	s.mu.Lock()
+	teraz = wolny()
+	if !teraz {
+		s.synchro.Tekst = ""
+	}
+	s.mu.Unlock()
+	if !teraz {
+		return
+	}
 	// Windows: nowy proces czeka na zwolnienie portu, który ten proces oddaje, kończąc pracę.
 	// macOS: nowy program zastępuje ten proces, a nasłuch zamyka się sam w chwili zastąpienia.
 	if uruchomZamiast(plik, s.argRestartu) {

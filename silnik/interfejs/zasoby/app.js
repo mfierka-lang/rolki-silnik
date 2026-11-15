@@ -266,6 +266,8 @@
     // po kolei: dysk i tak zapisuje jeden plik naraz, a pasek postępu jest czytelny
     kolejka = kolejka.then(function () {
       return new Promise(function (ok) {
+        var ponowione = false;
+        (function wyslij() {
         if (pliki.indexOf(p) < 0) return ok();
         var x = new XMLHttpRequest();
         p.xhr = x;
@@ -276,8 +278,13 @@
           catch (e) { p.el.classList.add("blad"); p.el.querySelector(".rozmiar").textContent = "nie udało się dodać"; }
           odswiezMontuj(); ok();
         };
-        x.onerror = x.onabort = function () { p.el.classList.add("blad"); odswiezMontuj(); ok(); };
+        x.onabort = function () { p.el.classList.add("blad"); odswiezMontuj(); ok(); };
+        x.onerror = function () {
+          if (!ponowione) { ponowione = true; p.el.querySelector(".wgrywanie").style.width = "0"; setTimeout(wyslij, 4000); return; }
+          p.el.classList.add("blad"); p.el.querySelector(".rozmiar").textContent = "nie udało się dodać"; odswiezMontuj(); ok();
+        };
         x.send(plik);
+        })();
       });
     });
   }
@@ -329,6 +336,7 @@
   uwagaJakosci();
   function pilnuj() {
     clearInterval(zegar);
+    var nieznane = 0;
     zegar = setInterval(function () {
       $("czas-pracy").textContent = czasTekst((Date.now() - startPracy) / 1000);
       wolaj("/api/postep").then(function (p) {
@@ -343,6 +351,11 @@
           clearInterval(zegar);
           stanSilnika("gotowy", "Silnik gotowy");
           bladEkran(p.blad || "Nieznany błąd");
+        } else if (++nieznane >= 4) {
+          // silnik uruchomił się ponownie (np. aktualizacja) i nie zna tego zlecenia
+          clearInterval(zegar);
+          stanSilnika("gotowy", "Silnik gotowy");
+          bladEkran("Silnik uruchomił się ponownie i montaż został przerwany. Wróć do nagrań, dodaj je jeszcze raz i kliknij Montuj.");
         }
       }).catch(function () {});
     }, 800);
