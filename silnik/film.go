@@ -118,8 +118,7 @@ func skrocPlan(plan *PlanMowy, maks, klatki float64) bool {
 
 // skalaKlatki: wymiary klatki podglądowej dla modelu oglądającego ujęcia, w proporcjach filmu.
 func skalaKlatki(st *Styl) string {
-	if st.Szer > st.Wys {
-		return "768:432"
-	}
-	return "432:768"
+	dluzszy := float64(max(st.Szer, st.Wys))
+	bok := func(v int) int { return 2 * int(math.Round(768*float64(v)/dluzszy/2)) }
+	return fmt.Sprintf("%d:%d", bok(st.Szer), bok(st.Wys))
 }

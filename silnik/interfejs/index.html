@@ -66,11 +66,13 @@
     <label class="pole">
       <span>O czym ma być film?</span>
       <textarea id="opis" rows="2" maxlength="400" placeholder="np. rolka o magnesach NFC dla restauracji, dynamicznie"></textarea>
-      <small class="podpowiedz">Możesz tu też napisać, jaki ma być film, np. „film około 2 minuty, 16:9, spokojnie” albo „rolka mówiona, 40 sekund”. To, co napiszesz, ma pierwszeństwo przed przełącznikami.</small>
+      <small class="podpowiedz">Możesz tu też napisać, jaki ma być film, np. „film około 2 minuty, 16:9, spokojnie”, „post 4:5 w 2K” albo „rolka mówiona, 40 sekund”. To, co napiszesz, ma pierwszeństwo przed przełącznikami.</small>
     </label>
     <div class="opcje" id="opcje">
       <fieldset class="wybor"><legend>Format</legend>
         <label><input type="radio" name="format" value="pion" checked><span>Pionowy <small>rolka 9:16</small></span></label>
+        <label class="tylko-jakosc"><input type="radio" name="format" value="post"><span>Post <small>Instagram 4:5</small></span></label>
+        <label class="tylko-jakosc"><input type="radio" name="format" value="kwadrat"><span>Kwadrat <small>1:1</small></span></label>
         <label><input type="radio" name="format" value="poziom"><span>Poziomy <small>film 16:9</small></span></label>
       </fieldset>
       <fieldset class="wybor"><legend>Długość</legend>
@@ -146,7 +148,7 @@
       <div class="blok">
         <label class="pole">
           <span>Popraw</span>
-          <textarea id="popraw" rows="2" maxlength="300" placeholder="np. krócej, większe napisy, bez nagłówka, nagłówek: Magnesy NFC / dla restauracji"></textarea>
+          <textarea id="popraw" rows="2" maxlength="300" placeholder="np. krócej, większe napisy, kwadrat, inna muzyka, nagłówek: Magnesy NFC / dla restauracji"></textarea>
         </label>
         <div class="rzad rzad-miedzy">
           <button class="link" id="nowa" type="button">Nowy film</button>

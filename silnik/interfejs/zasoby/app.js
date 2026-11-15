@@ -373,7 +373,10 @@
     if (wynik.rozmiar) czesci.push("plik " + rozmiarTekst(wynik.rozmiar));
     if (wynik.trwalo) czesci.push("montaż trwał " + czasTekst(wynik.trwalo) + " min");
     $("wynik-podsumowanie").textContent = (wynik.temat ? wynik.temat + " " : "") + (czesci.length ? czesci.join(", ") + "." : "");
-    $("wynik-nad").textContent = (wynik.rodzaj === "mowa" ? "Film mówiony" : "Film z ujęć") + (wynik.format === "poziom" ? ", poziomy 16:9" : ", pionowy 9:16") + (jak !== "hd" && nazwyJ[jak] ? ", " + nazwyJ[jak] : "");
+    var nazwyF = { pion: "pionowy 9:16", poziom: "poziomy 16:9", post: "post 4:5", kwadrat: "kwadrat 1:1" };
+    // podgląd w proporcjach filmu (rolka, post, kwadrat, film poziomy)
+    $("film").style.aspectRatio = wynik.szer && wynik.wys ? wynik.szer + " / " + wynik.wys : "";
+    $("wynik-nad").textContent = (wynik.rodzaj === "mowa" ? "Film mówiony" : "Film z ujęć") + ", " + (nazwyF[wynik.format] || nazwyF.pion) + (jak !== "hd" && nazwyJ[jak] ? ", " + nazwyJ[jak] : "");
     Array.prototype.forEach.call(document.querySelectorAll("#jakosc-przyciski [data-jakosc]"), function (b) {
       var ta = b.getAttribute("data-jakosc") === jak;
       b.disabled = ta;

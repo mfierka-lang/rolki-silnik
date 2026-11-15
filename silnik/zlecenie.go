@@ -27,7 +27,7 @@ type Zadanie struct {
 	Wyjscie string   `json:"wyjscie"`
 	Rodzaj  string   `json:"rodzaj"` // "" = rozpoznaj, "mowa", "ujecia"
 	// wybór na stronie
-	Format        string  `json:"format"`  // "pion" (9:16, domyślnie) albo "poziom" (16:9)
+	Format        string  `json:"format"`  // "pion" (9:16, domyślnie), "poziom" (16:9), "post" (4:5) albo "kwadrat" (1:1)
 	Dlugosc       string  `json:"dlugosc"` // "krotki" (do 60 s, domyślnie) albo "dlugi"
 	BezNapisow    bool    `json:"bezNapisow"`
 	BezPrzejsc    bool    `json:"bezPrzejsc"`
@@ -45,7 +45,7 @@ type Zadanie struct {
 type Wynik struct {
 	Plik     string   `json:"plik"`
 	Rodzaj   string   `json:"rodzaj"` // mowa | ujecia
-	Format   string   `json:"format"` // pion | poziom
+	Format   string   `json:"format"` // pion | poziom | post | kwadrat
 	Muzyka   string   `json:"muzyka"` // tytuł użytego utworu
 	Czas     float64  `json:"czas"`   // długość rolki w sekundach
 	Trwalo   float64  `json:"trwalo"` // ile trwał montaż
@@ -76,7 +76,7 @@ type Ustawienia struct {
 	Naglowek      []string
 	Pomin         int    // ile ujęć z początku pominąć („skróć początek”)
 	DlugoscPodana bool   // długość wpisana wprost w opisie (sekundy albo minuty)
-	Format        string // "pion" albo "poziom", gdy opis mówi o proporcjach
+	Format        string // "pion", "poziom", "post" (4:5) albo "kwadrat" (1:1), gdy opis mówi o proporcjach
 	Kierunek      int    // ostatnia poprawka: -1 = krócej, 1 = dłużej (liczone od długości poprzedniego filmu)
 	Jakosc        string // "hd", "2k" albo "4k", gdy opis lub uwaga mówi o jakości
 	InnaMuzyka    bool   // ostatnia poprawka prosi o inny utwór
@@ -123,11 +123,8 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 			}
 		}
 		male := strings.ToLower(surowe)
-		switch {
-		case strings.Contains(male, "16:9") || strings.Contains(male, "16 : 9") || strings.Contains(male, "16x9") || ma(" poziom", " panoram", " na youtube", " na yt "):
-			u.Format = "poziom"
-		case strings.Contains(male, "9:16") || strings.Contains(male, "9 : 16") || strings.Contains(male, "9x16") || ma(" pionow", " w pionie", " pion ", " na tiktok", " na instagram", " rolk"):
-			u.Format = "pion"
+		if f := formatZTekstu(male, ma); f != "" {
+			u.Format = f
 		}
 		if q := jakoscZTekstu(male); q != "" {
 			u.Jakosc = q
@@ -210,7 +207,8 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 // stylZlecenia: gdy uwagi zmieniają wielkość napisów, powstaje kopia stylu tylko dla tego zlecenia.
 func stylZlecenia(z *Zadanie, u Ustawienia, skalaObrazu float64) string {
 	poziom := z.Format == "poziom"
-	if u.SkalaNapisu == 1 && !poziom && !z.BezAnimacji && skalaObrazu <= 1 {
+	nizszy := z.Format == "post" || z.Format == "kwadrat" // szerokość jak w rolce, kadr niższy: napisy bez zmian
+	if u.SkalaNapisu == 1 && !poziom && !nizszy && !z.BezAnimacji && skalaObrazu <= 1 {
 		return z.Styl
 	}
 	b, err := os.ReadFile(z.Styl)
@@ -226,6 +224,9 @@ func stylZlecenia(z *Zadanie, u Ustawienia, skalaObrazu float64) string {
 		// film poziomy: kadr 1920 x 1080, napisy mniejsze (wąski pasek u dołu), szersze linie
 		m["szer"], m["wys"] = 1920, 1080
 		skala *= 0.72
+	}
+	if nizszy {
+		m["szer"], m["wys"] = siatkaFormatu(z.Format)
 	}
 	if skalaObrazu > 1 {
 		m["skala"] = skalaObrazu
@@ -420,7 +421,7 @@ func polecenieWykonaj(arg []string) {
 	// To, co użytkownik napisał w opisie, ma pierwszeństwo przed przełącznikami na stronie: proporcje i długość.
 	if ust.Format != "" && ust.Format != z.Format && !(ust.Format == "pion" && z.Format == "") {
 		z.Format = ust.Format
-		ust.Notatki = append(ust.Notatki, map[string]string{"poziom": "Format z opisu: poziomy 16:9.", "pion": "Format z opisu: pionowy 9:16."}[ust.Format])
+		ust.Notatki = append(ust.Notatki, zdanieFormatu(ust.Format))
 	}
 	// „krócej” i „dłużej” w poprawce: względem tego, co naprawdę wyszło poprzednio
 	if z.PoprzedniCzas > 0 && ust.Kierunek != 0 {
@@ -451,10 +452,7 @@ func polecenieWykonaj(arg []string) {
 	if ust.Jakosc != "" && !z.JakoscPewna {
 		jak = jakoscZKlucza(ust.Jakosc)
 	}
-	siatkaSzer, siatkaWys := 1080, 1920
-	if z.Format == "poziom" {
-		siatkaSzer, siatkaWys = 1920, 1080
-	}
+	siatkaSzer, siatkaWys := siatkaFormatu(z.Format)
 	jak, notkaJakosci, jakoscOgraniczona := dobierzJakosc(jak, klipy, siatkaSzer, siatkaWys)
 	// ten sam film w innej jakości: teksty z poprzedniej wersji (model piszący za każdym razem pisze trochę inaczej)
 	var wzor *Wynik
@@ -509,10 +507,7 @@ func polecenieWykonaj(arg []string) {
 	if jakoscOgraniczona {
 		w.JakoscUwaga = notkaJakosci
 	}
-	w.Format = "pion"
-	if z.Format == "poziom" {
-		w.Format = "poziom"
-	}
+	w.Format = formatZKlucza(z.Format)
 
 	// 1. nagrania: parametry i „obejrzenie” (ruch kamery, ostrość, twarze). Wynik zostaje w pamięci silnika.
 	var skany []*Skan

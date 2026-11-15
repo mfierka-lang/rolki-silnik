@@ -91,14 +91,14 @@ jobs:
           cp "$DANE/zlecenia/ujecia/rolka.mp4" wyniki/mac-rolka-ujecia.mp4
           cp "$DANE/zlecenia/ujecia/wynik.json" wyniki/mac-rolka-ujecia.json
 
-      - name: Jakość 4K i 2K (duży obraz, enkoder sprzętowy, pamięć)
+      - name: Jakość 4K i 2K, format kwadratowy (duży obraz, enkoder sprzętowy, pamięć)
         if: always()
         run: |
           export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
           # nagranie próbne powiększone do 4K: sprawdzamy drogę obrazu i pamięć, nie ostrość
           "$DANE/bin/ffmpeg" -v error -y -i probki/test-mowa-ujecia.mp4 -vf scale=3840:2160:flags=bicubic -c:v libx264 -preset ultrafast -crf 20 -c:a copy "$RUNNER_TEMP/proba-4k.mp4"
           # nazwa | format | jakość | opis | 1 = bez bezpiecznika pamięci (ta maszyna ma 7 GB, więc zwykle 4K zamienia się w 2K)
-          for PROBA in "ujecia4k|poziom|4k|breloki i magnesy NFC, same ujęcia|1" "ujecia4k-limit|poziom|4k|breloki i magnesy NFC, same ujęcia|" "mowa2k|pion|4k|rolka mówiona o magnesach NFC|"; do
+          for PROBA in "ujecia4k|poziom|4k|breloki i magnesy NFC, same ujęcia|1" "ujecia4k-limit|poziom|4k|breloki i magnesy NFC, same ujęcia|" "mowa2k|pion|4k|rolka mówiona o magnesach NFC|" "kwadrat|kwadrat|hd|breloki i magnesy NFC, same ujęcia|"; do
             IFS='|' read -r NAZWA FORMAT JAKOSC OPIS BEZLIMITU <<< "$PROBA"
             K="$DANE/zlecenia/$NAZWA"; mkdir -p "$K"
             printf '{"pliki": ["%s"], "opis": "%s", "format": "%s", "jakosc": "%s", "dane": "%s", "praca": "%s"}' "$RUNNER_TEMP/proba-4k.mp4" "$OPIS" "$FORMAT" "$JAKOSC" "$DANE" "$K" > "$K/zadanie.json"
@@ -115,6 +115,7 @@ jobs:
           test "$(rozmiar ujecia4k)" = "3840,2160"
           test "$(rozmiar ujecia4k-limit)" = "2560,1440"
           test "$(rozmiar mowa2k)" = "1440,2560"
+          test "$(rozmiar kwadrat)" = "1080,1080"
 
       - name: Serwer lokalny i montaż przez interfejs (tak jak ze strony)
         if: always()
