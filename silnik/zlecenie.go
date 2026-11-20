@@ -314,6 +314,36 @@ func ocenMowe(n *Narzedzia, st *Styl, praca string, i int, k *Klip) OcenaMowy {
 	return o
 }
 
+// mozeBycWypowiedzia: czy warto słuchać nagrania (tryb automatyczny). Twarz do kamery przez większość czasu albo
+// przez część dłuższego nagrania (osoba mówi i co chwilę pokazuje produkt). Nagrania bez twarzy nie są słuchane:
+// to zwykle ujęcia z rozmowami ekipy, a słuchanie każdego wydłużałoby pierwsze oglądanie materiału.
+func mozeBycWypowiedzia(twarz, czas float64) bool {
+	return twarz >= 0.4 || (twarz >= 0.12 && czas >= 6)
+}
+
+// czyWypowiedz: czy nagranie to wypowiedź do filmu mówionego (tryb automatyczny). Twarz przez większość nagrania
+// i gęsta mowa: tak. Osoba, która mówi i co chwilę pokazuje produkt (twarz rzadziej, 12-40% nagrania): tak, gdy
+// mowa jest gęsta, wyraźna i nie składa się z powtórek (whisper w hałasie „słyszy” w kółko to samo zdanie).
+// Rozmowy ekipy w tle są rzadkie i ciche, więc nie przechodzą (sprawdzone na 27 nagraniach z montażu szyby).
+func czyWypowiedz(o OcenaMowy, twarz float64) bool {
+	if o.Slow < 8 || o.SlowNaSek < 0.9 {
+		return false
+	}
+	if twarz >= 0.4 {
+		return true
+	}
+	rozne := map[string]bool{}
+	for _, s := range o.Slowa {
+		if t := normalizuj(s.Tekst); t != "" && !toWtracenie(s.Tekst) {
+			rozne[t] = true
+		}
+	}
+	if float64(len(rozne)) < 0.45*float64(o.Slow) {
+		return false
+	}
+	return twarz >= 0.12 && o.Slow >= 15 && o.SlowNaSek >= 1.3 && o.Udzial >= 0.4
+}
+
 func wczytajZadanie(plik string) (*Zadanie, error) {
 	b, err := os.ReadFile(plik)
 	if err != nil {
@@ -532,11 +562,15 @@ func polecenieWykonaj(arg []string) {
 	if rodzaj != "ujecia" {
 		for i, k := range klipy {
 			twarz, _, _ := udzialTwarzy(skany[i])
-			if !k.MaDzwiek || (rodzaj != "mowa" && twarz < 0.4) {
+			if !k.MaDzwiek || (rodzaj != "mowa" && !mozeBycWypowiedzia(twarz, k.Czas)) {
 				continue
 			}
 			komunikat("mowa", 0.28+0.1*float64(i)/float64(len(klipy)), fmt.Sprintf("Słucham, co mówi osoba w nagraniu %d", i+1))
-			oceny = append(oceny, ocenMowe(n, st, z.Praca, i, k))
+			o := ocenMowe(n, st, z.Praca, i, k)
+			if rodzaj != "mowa" {
+				o.Mowione = czyWypowiedz(o, twarz)
+			}
+			oceny = append(oceny, o)
 		}
 		// wypowiedź to nagrania z gęstą mową. Gdy opis wymusza film mówiony, a żadne nagranie nie spełnia progu,
 		// zostaje jedno z najgęstszą mową; rozmowy w tle na ujęciach roboczych nie są wypowiedzią.
@@ -582,6 +616,15 @@ func polecenieWykonaj(arg []string) {
 				if !toWtracenie(s.Tekst) { // bez yyy i eee: ten tekst trafia do opisu posta
 					tekstMowy = append(tekstMowy, s.Tekst)
 				}
+			}
+		}
+	}
+	// mowa słyszalna, ale nie uznana za wypowiedź: raport mówi to wprost (wcześniej znikała bez słowa)
+	if len(mowione) == 0 {
+		for _, o := range oceny {
+			if o.Slow >= 8 {
+				w.Raport = append(w.Raport, fmt.Sprintf("W nagraniu %s słychać mowę, ale nie wygląda na wypowiedź do kamery, więc film jest z samych ujęć. Jeśli to ma być film mówiony, wpisz w opisie albo w „Popraw”: mówiona.", filepath.Base(klipy[o.Klip].Plik)))
+				break
 			}
 		}
 	}
@@ -643,8 +686,9 @@ func polecenieWykonaj(arg []string) {
 		if zMuzyka {
 			komunikat("muzyka", 0.41, "Dobieram muzykę")
 			if u := wybierzUtwor(n, nastroj, ziarno, 40, nil); u != nil {
-				// podkład pod mowę: ok. 16 dB pod głosem jeszcze przed automatycznym ściszaniem, liczone z głośności tego utworu
-				poziom := math.Max(0.08, math.Min(0.5, wzmocnienieMuzyki(u, -30)))
+				// podkład pod mowę: ok. 8 dB pod głosem przed ściszaniem i ok. 14 dB pod głosem, gdy osoba mówi (pomiar
+				// 20.11.2026: wcześniej 26 dB, muzyki prawie nie było słychać), liczone z głośności tego utworu
+				poziom := math.Max(0.08, math.Min(0.5, wzmocnienieMuzyki(u, -25)))
 				a = append(a, "--muzyka", u.Plik, "--muzyka-od", liczba(u.Start), "--muzyka-poziom", liczba(poziom))
 				w.Muzyka = u.Nazwa
 			}
@@ -821,9 +865,9 @@ func polecenieRodzajCLI(arg []string) {
 		}
 		twarz, tx, ty := udzialTwarzy(sk)
 		linia := fmt.Sprintf("%-32s %6.1fs  twarz do kamery %3.0f%% (środek %.2f, %.2f)", filepath.Base(p), k.Czas, twarz*100, tx, ty)
-		if twarz >= 0.4 {
+		if k.MaDzwiek && mozeBycWypowiedzia(twarz, k.Czas) {
 			o := ocenMowe(n, st, praca, i, k)
-			linia += fmt.Sprintf("  głośno %3.0f%%  słów %d (%.2f/s)  mówione=%v", o.Udzial*100, o.Slow, o.SlowNaSek, o.Mowione)
+			linia += fmt.Sprintf("  głośno %3.0f%%  słów %d (%.2f/s)  wypowiedź=%v", o.Udzial*100, o.Slow, o.SlowNaSek, czyWypowiedz(o, twarz))
 		}
 		fmt.Println(linia)
 	}

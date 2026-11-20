@@ -1,7 +1,9 @@
 // Przebitki w filmie mówionym: gdy obok nagrania z osobą mówiącą do kamery są inne nagrania (produkt, praca,
-// miejsce), ich najlepsze fragmenty przykrywają obraz na 2-3 sekundy, a głos biegnie dalej. Przebitka najchętniej
-// zaczyna się na cięciu po wyciętej pauzie (zasłania przeskok) albo w chwili, gdy pada słowo pasujące do tego,
-// co na niej widać. Początek z nagłówkiem i końcówka z wezwaniem zostają bez przebitek.
+// miejsce), ich najlepsze fragmenty przykrywają obraz na 1,6-3,2 sekundy, a głos biegnie dalej. Przebitka najchętniej
+// zaczyna się tuż przed cięciem po wyciętej pauzie (zasłania przeskok) albo w chwili, gdy pada słowo pasujące do tego,
+// co na niej widać, i kończy się na następnym cięciu albo na końcu słowa. Rozłożone są równo przez cały film (mniej
+// więcej połowa czasu to przebitki), drżące ujęcia z ręki są stabilizowane. Początek z nagłówkiem i końcówka
+// z wezwaniem zostają bez przebitek.
 package main
 
 import (
@@ -21,8 +23,11 @@ type Przebitka struct {
 }
 
 const (
-	przebitkaCzas   = 2.4 // sekundy
-	przebitkaOdstep = 4.4 // najmniej tyle mówiącej osoby między przebitkami
+	przebitkaMin    = 1.6 // sekundy
+	przebitkaCel    = 2.4
+	przebitkaMaks   = 3.2
+	przebitkaOdstep = 2.0 // najmniej tyle mówiącej osoby między przebitkami
+	przebitkaRytm   = 2.6 // średnio tyle mówiącej osoby między przebitkami
 )
 
 // rdzenSlowa: początek słowa bez polskich znaków (magnesy, magnesów, magnesie -> magne).
@@ -40,13 +45,13 @@ func rdzenSlowa(s string) string {
 // przygotujPrzebitki: wybiera fragmenty z nagrań dodatkowych, rozkłada je na osi filmu i przygotowuje pliki.
 func przygotujPrzebitki(n *Narzedzia, st *Styl, praca string, pliki []string, plan *PlanMowy, hakKoniec float64, postep func(string)) []Przebitka {
 	poczatek := math.Max(hakKoniec+0.4, 3.0)
-	koniec := plan.Czas - 2.6
-	if len(pliki) == 0 || koniec-poczatek < przebitkaCzas {
+	koniec := plan.Czas - 2.4
+	if len(pliki) == 0 || koniec-poczatek < przebitkaMin {
 		return nil
 	}
-	ileMiejsc := int((koniec-poczatek+przebitkaOdstep)/(przebitkaCzas+przebitkaOdstep) + 1e-6)
+	ileMiejsc := int((koniec-poczatek+przebitkaRytm)/(przebitkaCel+przebitkaRytm) + 1e-6)
 	if ileMiejsc < 1 {
-		return nil
+		ileMiejsc = 1
 	}
 
 	// 1. kandydaci: najlepsze fragmenty każdego nagrania (obejrzane już wcześniej: wynik skanu jest w pamięci silnika)
@@ -61,20 +66,14 @@ func przygotujPrzebitki(n *Narzedzia, st *Styl, praca string, pliki []string, pl
 		if err != nil {
 			continue
 		}
-		ile := 1
-		if k.Czas > 20 {
-			ile = 2
-		}
-		if k.Czas > 60 {
-			ile = 3
-		}
-		okna = append(okna, oknaKlipu(len(klipy), k, sk, przebitkaCzas, ile, 6)...)
+		ile := min(4, 1+int(k.Czas/12))
+		okna = append(okna, oknaKlipu(len(klipy), k, sk, przebitkaMaks, ile, 4)...)
 		klipy = append(klipy, k)
 	}
 	sort.SliceStable(okna, func(a, b int) bool { return okna[a].Ocena < okna[b].Ocena })
 	var wybrane []Okno
 	zKlipu := map[int]int{}
-	for runda := 1; runda <= 3 && len(wybrane) < ileMiejsc; runda++ {
+	for runda := 1; runda <= 4 && len(wybrane) < ileMiejsc; runda++ {
 		for _, o := range okna {
 			if len(wybrane) >= ileMiejsc {
 				break
@@ -84,7 +83,12 @@ func przygotujPrzebitki(n *Narzedzia, st *Styl, praca string, pliki []string, pl
 			}
 			podobne := false
 			for _, w := range wybrane {
-				if (w.Klip == o.Klip && math.Abs(w.Od-o.Od) < 1) || podobienstwo(o.Mini, w.Mini, o.MiniW) > 0.85 {
+				// drugi fragment tego samego nagrania tylko wtedy, gdy widać na nim coś wyraźnie innego (bez powtórek w filmie)
+				prog := 0.85
+				if w.Klip == o.Klip {
+					prog = 0.6
+				}
+				if (w.Klip == o.Klip && math.Abs(w.Od-o.Od) < 1.5) || podobienstwo(o.Mini, w.Mini, o.MiniW) > prog {
 					podobne = true
 					break
 				}
@@ -121,24 +125,100 @@ func przygotujPrzebitki(n *Narzedzia, st *Styl, praca string, pliki []string, pl
 	}
 
 	// 3. miejsca na osi filmu
-	type miejsce struct {
-		od    float64
-		slowo string
+	przydzial := rozlozPrzebitki(wybrane, plan, poczatek, koniec, ileMiejsc)
+
+	// 4. przygotowanie plików (kadr filmu, ta sama droga co ujęcia w filmie z ujęć; drżące ujęcia z ręki stabilizowane)
+	zaStab := maFiltr(n, "vidstabdetect")
+	kl := float64(st.Klatki)
+	ile := 0
+	for _, m := range przydzial {
+		if m.jest {
+			ile++
+		}
 	}
-	zajete := []miejsce{}
-	wolne := func(t float64) bool {
-		if t < poczatek || t+przebitkaCzas > koniec {
+	var out []Przebitka
+	for i, o := range wybrane {
+		m := przydzial[i]
+		if !m.jest {
+			continue
+		}
+		postep(fmt.Sprintf("Przygotowuję przebitkę %d z %d", len(out)+1, ile))
+		nazwa := fmt.Sprintf("przebitka%02d", i) // przygotujUjecie samo dodaje .mkv
+		o.Do = math.Min(o.Do, o.Od+m.do-m.od+0.2)
+		if err := przygotujUjecie(n, klipy[o.Klip], o, st, praca, nazwa, zaStab && o.Drgania > 1.2); err != nil {
+			continue
+		}
+		od := math.Round(m.od*kl) / kl
+		do := math.Round(m.do*kl) / kl
+		out = append(out, Przebitka{Plik: filepath.Join(praca, nazwa+".mkv"), Od: od, Do: do, Zrodlo: filepath.Base(klipy[o.Klip].Plik), Slowo: m.slowo})
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Od < out[b].Od })
+	return out
+}
+
+type miejscePrzebitki struct {
+	od, do float64
+	slowo  string
+	jest   bool
+}
+
+// rozlozPrzebitki: miejsce i długość każdej przebitki. Najpierw te, które pasują do wypowiadanego słowa, potem reszta
+// równo przez cały film. Początek dosunięty tuż przed cięcie po wyciętej pauzie (przebitka zasłania przeskok obrazu),
+// koniec na następnym cięciu albo na końcu słowa, tak żeby przebitka trwała 1,6-3,2 s.
+func rozlozPrzebitki(wybrane []Okno, plan *PlanMowy, poczatek, koniec float64, ileMiejsc int) []miejscePrzebitki {
+	var ciecia []float64
+	for i, o := range plan.Odcinki {
+		if i > 0 {
+			ciecia = append(ciecia, o.WyOd)
+		}
+	}
+	var konceSlow []float64
+	for i, s := range plan.Slowa {
+		if i+1 < len(plan.Slowa) && plan.Slowa[i+1].Od-s.Do >= 0.08 {
+			konceSlow = append(konceSlow, s.Do+0.04)
+		}
+	}
+	// długość: koniec na cięciu, potem na końcu słowa, najbliżej 2,4 s
+	dlugosc := func(t float64) float64 {
+		naj, najR := przebitkaCel, math.Inf(1)
+		for _, zestaw := range [][]float64{ciecia, konceSlow} {
+			for _, c := range zestaw {
+				d := c - t
+				if d < przebitkaMin || d > przebitkaMaks {
+					continue
+				}
+				if r := math.Abs(d - przebitkaCel); r < najR {
+					naj, najR = d, r
+				}
+			}
+			if !math.IsInf(najR, 1) {
+				break
+			}
+		}
+		return math.Min(naj, koniec-t)
+	}
+	out := make([]miejscePrzebitki, len(wybrane))
+	var zajete []miejscePrzebitki
+	wolne := func(t, d float64) bool {
+		if t < poczatek || d < przebitkaMin-1e-6 || t+d > koniec+1e-6 {
 			return false
 		}
 		for _, m := range zajete {
-			if math.Abs(m.od-t) < przebitkaCzas+przebitkaOdstep {
+			if t < m.do+przebitkaOdstep && t+d > m.od-przebitkaOdstep {
 				return false
 			}
 		}
 		return true
 	}
-	przydzial := make([]miejsce, len(wybrane))
-	ma := make([]bool, len(wybrane))
+	zajmij := func(i int, t float64, slowo string) bool {
+		d := dlugosc(t)
+		if !wolne(t, d) {
+			return false
+		}
+		out[i] = miejscePrzebitki{od: t, do: t + d, slowo: slowo, jest: true}
+		zajete = append(zajete, out[i])
+		return true
+	}
 	// a) słowo z wypowiedzi pasujące do tego, co widać na przebitce
 	for i, o := range wybrane {
 		if o.Opis == nil {
@@ -151,57 +231,41 @@ func przygotujPrzebitki(n *Narzedzia, st *Styl, praca string, pliki []string, pl
 			}
 		}
 		for _, s := range plan.Slowa {
-			if r := rdzenSlowa(s.Tekst); r != "" && rdzenie[r] && wolne(s.Od-0.15) {
-				przydzial[i], ma[i] = miejsce{s.Od - 0.15, strings.Trim(s.Tekst, ".,!?;: ")}, true
-				zajete = append(zajete, przydzial[i])
+			if r := rdzenSlowa(s.Tekst); r != "" && rdzenie[r] && zajmij(i, s.Od-0.15, strings.Trim(s.Tekst, ".,!?;: ")) {
 				break
 			}
 		}
 	}
-	// b) pozostałe: równo rozłożone, dosunięte do najbliższego cięcia po wyciętej pauzie (przebitka je zasłania)
-	var ciecia []float64
-	for i, o := range plan.Odcinki {
-		if i > 0 {
-			ciecia = append(ciecia, o.WyOd)
-		}
-	}
+	// b) pozostałe: równo przez cały film (siatka ileMiejsc pól), każda w najbliższym wolnym miejscu przy swoim polu
+	var reszta []int
 	for i := range wybrane {
-		if ma[i] {
-			continue
-		}
-		for t := poczatek; t+przebitkaCzas <= koniec+1e-6; t += 0.5 {
-			if !wolne(t) {
-				continue
-			}
-			naj := t
-			for _, c := range ciecia {
-				if kand := c - 0.25; math.Abs(kand-t) < 1.6 && wolne(kand) {
-					naj = kand
-					break
-				}
-			}
-			przydzial[i], ma[i] = miejsce{naj, ""}, true
-			zajete = append(zajete, przydzial[i])
-			break
+		if !out[i].jest {
+			reszta = append(reszta, i)
 		}
 	}
-
-	// 4. przygotowanie plików (kadr filmu, ta sama droga co ujęcia w filmie z ujęć)
-	kl := float64(st.Klatki)
-	var out []Przebitka
-	for i, o := range wybrane {
-		if !ma[i] {
-			continue
+	krok := (koniec - poczatek) / float64(ileMiejsc)
+	for j, i := range reszta {
+		// pole tej przebitki: przy mniejszej liczbie przebitek niż pól rozkładają się na całą długość filmu
+		pole := float64(j) + 0.5
+		if len(reszta) < ileMiejsc {
+			pole = (float64(j) + 0.5) * float64(ileMiejsc) / float64(len(reszta))
 		}
-		postep(fmt.Sprintf("Przygotowuję przebitkę %d z %d", len(out)+1, len(zajete)))
-		nazwa := fmt.Sprintf("przebitka%02d", i) // przygotujUjecie samo dodaje .mkv
-		if err := przygotujUjecie(n, klipy[o.Klip], o, st, praca, nazwa, false); err != nil {
-			continue
+		srodek := poczatek + pole*krok - przebitkaCel/2
+		var kandydaci []float64
+		for _, c := range ciecia {
+			if math.Abs(c-0.25-srodek) <= krok/2 {
+				kandydaci = append(kandydaci, c-0.25)
+			}
 		}
-		od := math.Round(przydzial[i].od*kl) / kl
-		out = append(out, Przebitka{Plik: filepath.Join(praca, nazwa+".mkv"), Od: od, Do: od + math.Floor(przebitkaCzas*kl)/kl,
-			Zrodlo: filepath.Base(klipy[o.Klip].Plik), Slowo: przydzial[i].slowo})
+		sort.Slice(kandydaci, func(a, b int) bool { return math.Abs(kandydaci[a]-srodek) < math.Abs(kandydaci[b]-srodek) })
+		for d := 0.0; d <= krok/2+1e-6; d += 0.25 {
+			kandydaci = append(kandydaci, srodek+d, srodek-d)
+		}
+		for _, t := range kandydaci {
+			if zajmij(i, t, "") {
+				break
+			}
+		}
 	}
-	sort.Slice(out, func(a, b int) bool { return out[a].Od < out[b].Od })
 	return out
 }

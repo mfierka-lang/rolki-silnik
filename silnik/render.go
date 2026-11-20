@@ -164,7 +164,7 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 		fmt.Fprintf(&f, "[g0]%s,asplit=2[g1][g2];\n", glos)
 		fmt.Fprintf(&f, "[%d:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=0:%s,volume=%s,afade=t=out:st=%s:d=%s[m0];\n",
 			wm, liczba(czas), liczba(poziomMuzyki), liczba(math.Max(0, czas-wycisz)), liczba(wycisz))
-		f.WriteString("[m0][g2]sidechaincompress=threshold=0.02:ratio=9:attack=15:release=380[m1];\n")
+		f.WriteString("[m0][g2]sidechaincompress=threshold=0.06:ratio=2.5:attack=30:release=450[m1];\n")
 		f.WriteString("[g1][m1]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.89:level=0[a]\n")
 	} else {
 		fmt.Fprintf(&f, "[g0]%s,alimiter=limit=0.89:level=0[a]\n", glos)
