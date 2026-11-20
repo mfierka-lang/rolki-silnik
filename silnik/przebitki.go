@@ -78,17 +78,22 @@ func przygotujPrzebitki(n *Narzedzia, st *Styl, praca string, pliki []string, pl
 			if len(wybrane) >= ileMiejsc {
 				break
 			}
-			if o.Drgania > 3.0 || o.Ocena > 1.2 || zKlipu[o.Klip] != runda-1 {
+			// odpadają tylko ujęcia mocno roztrzęsione albo nieostre; spokojny produkt bez ruchu w kadrze to dobra
+			// przebitka (wcześniej próg oceny „coś się dzieje” odrzucał wszystkie takie ujęcia)
+			if o.Drgania > 3.0 || o.Ostrosc < 0.55 || zKlipu[o.Klip] != runda-1 {
 				continue
 			}
 			podobne := false
 			for _, w := range wybrane {
 				// drugi fragment tego samego nagrania tylko wtedy, gdy widać na nim coś wyraźnie innego (bez powtórek w filmie)
+				// (dron i powolna panorama wyglądają tak samo przez kilkanaście sekund, a miniatury tego nie łapią: stąd
+				// wymóg nagrania od 20 s i 8 s odstępu w źródle)
 				prog := 0.85
 				if w.Klip == o.Klip {
 					prog = 0.6
 				}
-				if (w.Klip == o.Klip && math.Abs(w.Od-o.Od) < 1.5) || podobienstwo(o.Mini, w.Mini, o.MiniW) > prog {
+				tenSam := w.Klip == o.Klip && (klipy[o.Klip].Czas < 20 || math.Abs(w.Od-o.Od) < 8)
+				if tenSam || podobienstwo(o.Mini, w.Mini, o.MiniW) > prog {
 					podobne = true
 					break
 				}
@@ -258,7 +263,8 @@ func rozlozPrzebitki(wybrane []Okno, plan *PlanMowy, poczatek, koniec float64, i
 			}
 		}
 		sort.Slice(kandydaci, func(a, b int) bool { return math.Abs(kandydaci[a]-srodek) < math.Abs(kandydaci[b]-srodek) })
-		for d := 0.0; d <= krok/2+1e-6; d += 0.25 {
+		// potem dowolne wolne miejsce w filmie, najbliżej swojego pola (pole bywa zajęte przez przebitkę dopasowaną do słowa)
+		for d := 0.0; d <= koniec-poczatek+1e-6; d += 0.25 {
 			kandydaci = append(kandydaci, srodek+d, srodek-d)
 		}
 		for _, t := range kandydaci {

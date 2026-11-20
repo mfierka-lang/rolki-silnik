@@ -69,6 +69,28 @@ func wczytajWav(plik string) ([]int16, int, error) {
 
 // wykryjMowe: przedziały, w których ktoś mówi. Próg dobierany do nagrania: między poziomem tła (szum drukarek,
 // pomieszczenie) a poziomem głosu. Krótkie przerwy wewnątrz słów są sklejane.
+// poziomyDzwieku: poziom tła (15. centyl) i głośnych fragmentów (92. centyl) w dB względem pełnej skali, w oknach 20 ms.
+// Głos tuż przy telefonie (ktoś mówi zza kamery) jest głośny i wyraźnie nad tłem; rozmowy ekipy w tle są ciche.
+func poziomyDzwieku(probki []int16, czest int) (tlo, glos float64) {
+	skok := czest / 100
+	okno := 2 * skok
+	if skok <= 0 || len(probki) < okno*10 {
+		return -100, -100
+	}
+	ile := (len(probki) - okno) / skok
+	db := make([]float64, ile)
+	for i := 0; i < ile; i++ {
+		var s float64
+		for _, v := range probki[i*skok : i*skok+okno] {
+			f := float64(v) / 32768
+			s += f * f
+		}
+		db[i] = 10 * math.Log10(s/float64(okno)+1e-10)
+	}
+	sort.Float64s(db)
+	return db[len(db)*15/100], db[len(db)*92/100]
+}
+
 func wykryjMowe(probki []int16, czest int) []Przedzial {
 	skok := czest / 100 // 10 ms
 	okno := 2 * skok

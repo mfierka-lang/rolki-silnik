@@ -91,6 +91,27 @@ jobs:
           cp "$DANE/zlecenia/ujecia/rolka.mp4" wyniki/mac-rolka-ujecia.mp4
           cp "$DANE/zlecenia/ujecia/wynik.json" wyniki/mac-rolka-ujecia.json
 
+      - name: Film mówiony z ujęciami produktu (tryb automatyczny, przebitki)
+        if: always()
+        run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          P="$DANE/zlecenia/mieszany"
+          mkdir -p "$P"
+          # ujęcia produktu: kadry z nagrania próbnego bez dźwięku i plansza testowa (każde osobnym plikiem)
+          "$DANE/bin/ffmpeg" -v error -y -ss 2 -t 6 -i probki/test-mowa-ujecia.mp4 -an -vf "crop=iw/2:ih/2:0:0,scale=1080:1920" -c:v libx264 -preset ultrafast "$RUNNER_TEMP/ujecie1.mp4"
+          "$DANE/bin/ffmpeg" -v error -y -ss 8 -t 6 -i probki/test-mowa-ujecia.mp4 -an -vf "hflip,crop=iw/2:ih/2:iw/2:ih/2,scale=1080:1920" -c:v libx264 -preset ultrafast "$RUNNER_TEMP/ujecie2.mp4"
+          "$DANE/bin/ffmpeg" -v error -y -f lavfi -i testsrc2=s=1080x1920:d=7:r=30 -c:v libx264 -preset ultrafast "$RUNNER_TEMP/ujecie3.mp4"
+          cat > "$P/zadanie.json" <<EOF
+          {"pliki": ["$GITHUB_WORKSPACE/probki/test-mowa-ujecia.mp4", "$RUNNER_TEMP/ujecie1.mp4", "$RUNNER_TEMP/ujecie2.mp4", "$RUNNER_TEMP/ujecie3.mp4"], "opis": "magnesy NFC dla restauracji", "dane": "$DANE", "praca": "$P"}
+          EOF
+          time "$DANE/montaz" wykonaj "$P/zadanie.json" > "$P/postep.txt" 2> "$P/bledy.txt" || true
+          tail -2 "$P/postep.txt"; tail -c 1500 "$P/bledy.txt"
+          cat "$P/wynik.json"
+          cp "$P/rolka.mp4" wyniki/mac-film-mieszany.mp4
+          cp "$P/wynik.json" wyniki/mac-film-mieszany.json
+          grep -q '"rodzaj": *"mowa"' "$P/wynik.json"
+          grep -q 'Przebitki: [1-9]' "$P/wynik.json"
+
       - name: Jakość 4K i 2K, format kwadratowy (duży obraz, enkoder sprzętowy, pamięć)
         if: always()
         run: |

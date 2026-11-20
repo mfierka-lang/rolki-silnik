@@ -36,6 +36,11 @@ type Skladnik struct {
 const (
 	hf = "https://huggingface.co/"
 	gh = "https://github.com/"
+	// ONNX Runtime z oficjalnej paczki NuGet Microsoftu (jedna paczka z bibliotekami na wszystkie systemy).
+	// Repozytorium microsoft/onnxruntime na GitHubie od ok. 20.11.2026 zwraca 404 razem z plikami wydań;
+	// onnxruntime.dll z NuGet jest bajt w bajt taki sam jak z dawnego wydania na GitHubie.
+	ortNuget    = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.32.0/microsoft.ml.onnxruntime.1.32.0.nupkg"
+	ortNugetSHA = "a9150bc2992cbbb6722070da9910e1ffa989a8bfc67bdd5bb8e745ca755641db"
 )
 
 // modelSylwetki: MODNet (Apache 2.0) w formacie ONNX; razem z ONNX Runtime daje napis za osobą.
@@ -65,9 +70,9 @@ func skladniki() []Skladnik {
 				URL: gh + "ggml-org/llama.cpp/releases/download/b12377/llama-b12377-bin-win-vulkan-x64.zip", SHA256: "0162ff9acc36ef88575d673e56e16673f455fb685fea1857c96fb57dd4831ff7"},
 			{Nazwa: "llama-b12377-bin-win-cpu-x64.zip", Opis: "llama.cpp: wersja zapasowa bez karty graficznej (25 MB)", MB: 25, Cel: "llama", Sprawdz: "llama-server.exe",
 				URL: gh + "ggml-org/llama.cpp/releases/download/b12377/llama-b12377-bin-win-cpu-x64.zip", SHA256: "d3b60c5abbe3a131c77e568310547492438bc7c785721eb765d2d817fe4424c5"},
-			{Nazwa: "onnxruntime-win-x64-1.32.0.zip", Opis: "ONNX Runtime: wycinanie sylwetki do napisu za osobą (97 MB)", MB: 97, Cel: "ort",
-				Wyjmij: []string{"onnxruntime.dll", "onnxruntime_providers_shared.dll"}, Sprawdz: "onnxruntime.dll",
-				URL: gh + "microsoft/onnxruntime/releases/download/v1.32.0/onnxruntime-win-x64-1.32.0.zip", SHA256: "aaa1d04fcf86bd31e84b90bc0cbde80e632bd0720dcc5d8ba05c4fe45c09d127"},
+			{Nazwa: "microsoft.ml.onnxruntime.1.32.0.zip", Opis: "ONNX Runtime: wycinanie sylwetki do napisu za osobą (184 MB)", MB: 184, Cel: "ort",
+				Wyjmij: []string{"runtimes/win-x64/native/onnxruntime.dll", "runtimes/win-x64/native/onnxruntime_providers_shared.dll"}, Sprawdz: "onnxruntime.dll",
+				URL: ortNuget, SHA256: ortNugetSHA},
 			modelSylwetki,
 		}, modele...)
 	case "darwin/arm64":
@@ -83,9 +88,9 @@ func skladniki() []Skladnik {
 				URL: gh + "mfierka-lang/rolki-silnik/releases/download/mac-narzedzia-1/whisper-cli-macos-arm64.zip", SHA256: "d06992144e9b5982f9dc7d919310dd69f05c3348577cf32fae8825128733c565"},
 			{Nazwa: "llama-b12377-bin-macos-arm64.tar.gz", Opis: "llama.cpp: uruchamianie modeli (17 MB)", MB: 17, Cel: "llama", Sprawdz: "llama-server",
 				URL: gh + "ggml-org/llama.cpp/releases/download/b12377/llama-b12377-bin-macos-arm64.tar.gz", SHA256: "abf1e91b761acdd707cc8e66abe930e47fe1a64ccb1e63662bdd67f7aebe3306"},
-			{Nazwa: "onnxruntime-osx-arm64-1.32.0.tgz", Opis: "ONNX Runtime: wycinanie sylwetki do napisu za osobą (39 MB)", MB: 39, Cel: "ort",
-				Wyjmij: []string{"libonnxruntime.dylib"}, Sprawdz: "libonnxruntime.dylib",
-				URL: gh + "microsoft/onnxruntime/releases/download/v1.32.0/onnxruntime-osx-arm64-1.32.0.tgz", SHA256: "8ddca23f532b9d4fbb279ba9b08dab6c0ac94fdc9aec2eb44a1db7049216c043"},
+			{Nazwa: "microsoft.ml.onnxruntime.1.32.0.zip", Opis: "ONNX Runtime: wycinanie sylwetki do napisu za osobą (184 MB)", MB: 184, Cel: "ort",
+				Wyjmij: []string{"runtimes/osx-arm64/native/libonnxruntime.dylib"}, Sprawdz: "libonnxruntime.dylib",
+				URL: ortNuget, SHA256: ortNugetSHA},
 			modelSylwetki,
 		}, modele...)
 	case "darwin/amd64":
@@ -362,7 +367,8 @@ func rozpakujZip(plik, cel string, wyjmij []string) error {
 	defer z.Close()
 	for _, f := range z.File {
 		nazwa := filepath.Base(filepath.FromSlash(f.Name))
-		if f.FileInfo().IsDir() || nazwa == "." || !chcePlik(nazwa, wyjmij) {
+		// pozycja w Wyjmij to nazwa pliku albo pełna ścieżka w archiwum (paczka NuGet ma kilka plików o tej samej nazwie)
+		if f.FileInfo().IsDir() || nazwa == "." || !(chcePlik(nazwa, wyjmij) || chcePlik(f.Name, wyjmij)) {
 			continue
 		}
 		we, err := f.Open()
