@@ -24,12 +24,26 @@ type Zlecenie struct {
 	MuzykaOd     float64  // od której sekundy utworu zacząć (po cichym wstępie)
 	MuzykaPoziom float64  // głośność podkładu policzona dla tego utworu (0 = wartość z szablonu)
 	Wyjscie      string
-	Praca        string      // katalog roboczy: napisy.ass, fonty/, filtr.txt
-	Za           *ZaOsoba    // nagłówek za osobą (nil = zwykły nagłówek w napisy.ass)
-	Przebitki    []Przebitka // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
+	Praca        string       // katalog roboczy: napisy.ass, fonty/, filtr.txt
+	Za           *ZaOsoba     // nagłówek za osobą (nil = zwykły nagłówek w napisy.ass)
+	Przebitki    []Przebitka  // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
+	Twarze       [][2]float64 // środek twarzy w każdym nagraniu (0-1 względem obrazu źródła; 0 = środek kadru)
 }
 
 func liczba(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
+// podzialKadru: granice kawałków z jednym kadrem w odcinku (czas od początku odcinka, z 0 i długością na brzegach).
+// Kawałek trwa najmniej 1,6 s, nowy zaczyna się na początku słowa po ok. 2,5 s.
+func podzialKadru(slowa []Slowo, wyOd, dl float64) []float64 {
+	g := []float64{0}
+	for _, s := range slowa {
+		t := s.Od - wyOd
+		if t >= g[len(g)-1]+2.5 && t <= dl-1.6 {
+			g = append(g, t)
+		}
+	}
+	return append(g, dl)
+}
 
 func kopiuj(z, do string) error {
 	b, err := os.ReadFile(z)
@@ -67,12 +81,19 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 			a := int(math.Round(o.Od * kl))
 			b := int(math.Round(o.Do * kl))
 			wybor = append(wybor, fmt.Sprintf("between(n,%d,%d)", a, b-1))
-			zb := st.Kadr.Zblizenia[g%len(st.Kadr.Zblizenia)]
-			if zb != 1 {
-				zoom = append(zoom, fmt.Sprintf("between(it,%s,%s)*%s", liczba(float64(klatka)/kl-0.004), liczba(float64(klatka+b-a)/kl-0.012), liczba(zb-1)))
+			// kadr zmienia się na każdym cięciu, a w dłuższym kawałku bez cięcia także co ok. 2,5 s na początku słowa
+			// (wzór właściciela z 20.11.2026: szeroki i ciasny kadr na zmianę, twardo, mediana co 2,6 s)
+			kawalki := podzialKadru(z.Plan.Slowa, o.WyOd, float64(b-a)/kl)
+			for k := 0; k+1 < len(kawalki); k++ {
+				zb := st.Kadr.Zblizenia[g%len(st.Kadr.Zblizenia)]
+				if zb != 1 {
+					p0 := float64(klatka)/kl + kawalki[k]
+					p1 := float64(klatka)/kl + kawalki[k+1]
+					zoom = append(zoom, fmt.Sprintf("between(it,%s,%s)*%s", liczba(p0-0.004), liczba(p1-0.012), liczba(zb-1)))
+				}
+				g++
 			}
 			klatka += b - a
-			g++
 		}
 		zexpr := "1"
 		if len(zoom) > 0 {
@@ -83,8 +104,22 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 			f.WriteString(",zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv")
 		}
 		ky := liczba(st.Kadr.Y)
-		fmt.Fprintf(&f, ",crop=w='2*floor(min(iw,ih*%d/%d)/2)':h='2*floor(min(ih,iw*%d/%d)/2)':x='(iw-ow)/2':y='(ih-oh)*%s'", st.Szer, st.Wys, st.Wys, st.Szer, ky)
-		fmt.Fprintf(&f, ",zoompan=z='%s':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)*%s':d=1:s=%dx%d:fps=%d,setsar=1,format=yuv420p[v%d];\n", zexpr, ky, st.ObrazSzer(), st.ObrazWys(), st.Klatki, we)
+		// kadr filmu i zbliżenie ustawione na twarz (wcześniej na środek: ciasny kadr potrafił ucinać głowę)
+		kadrX, zx, zy := "(iw-ow)/2", "(iw-iw/zoom)/2", "(ih-ih/zoom)*"+ky
+		if ki < len(z.Twarze) && z.Twarze[ki][0] > 0 && klip.W > 0 && klip.H > 0 {
+			fx, fy := z.Twarze[ki][0], z.Twarze[ki][1]
+			W, H := float64(klip.W), float64(klip.H)
+			cw := math.Min(W, H*float64(st.Szer)/float64(st.Wys))
+			ch := math.Min(H, W*float64(st.Wys)/float64(st.Szer))
+			cx := math.Max(0, math.Min(W-cw, fx*W-cw/2))
+			cy := (H - ch) * st.Kadr.Y
+			tx, ty := (fx*W-cx)/cw, (fy*H-cy)/ch
+			kadrX = fmt.Sprintf("max(0,min(iw-ow,%s*iw-ow/2))", liczba(fx))
+			zx = fmt.Sprintf("max(0,min(iw-iw/zoom,%s*iw-iw/zoom/2))", liczba(tx))
+			zy = fmt.Sprintf("max(0,min(ih-ih/zoom,%s*ih-0.4*ih/zoom))", liczba(ty))
+		}
+		fmt.Fprintf(&f, ",crop=w='2*floor(min(iw,ih*%d/%d)/2)':h='2*floor(min(ih,iw*%d/%d)/2)':x='%s':y='(ih-oh)*%s'", st.Szer, st.Wys, st.Wys, st.Szer, kadrX, ky)
+		fmt.Fprintf(&f, ",zoompan=z='%s':x='%s':y='%s':d=1:s=%dx%d:fps=%d,setsar=1,format=yuv420p[v%d];\n", zexpr, zx, zy, st.ObrazSzer(), st.ObrazWys(), st.Klatki, we)
 		etykietyV = append(etykietyV, fmt.Sprintf("[v%d]", we))
 
 		// dźwięk: każdy odcinek osobno (dokładność do próbki), krótkie wyciszenia na brzegach przeciw trzaskom

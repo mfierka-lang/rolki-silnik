@@ -21,7 +21,7 @@ import (
 )
 
 // wersja: zmienna (nie stała), żeby testy mogły zbudować program udający nowszą wersję: -X main.wersja=...
-var wersja = "0.6.7"
+var wersja = "0.6.8"
 
 // komunikat: postęp jako wiersze JSON (czytane później przez stronę), a dla człowieka czytelny tekst na stderr.
 // zakresPostepu: gdy montaż jest częścią większego zlecenia, jego postęp 0-1 trafia w wycinek paska całości.
@@ -265,13 +265,22 @@ func poleceniaMontuj(arg []string) {
 	if *bezNapisow {
 		slowaNapisow = nil
 	}
+	// środek twarzy w każdym nagraniu: na nim stoi kadr filmu i zbliżenia (skan jest w pamięci silnika)
+	twarze := make([][2]float64, len(klipy))
+	for i, k := range klipy {
+		if sk, err := skanuj(n, k); err == nil {
+			if u, x, y := udzialTwarzy(sk); u >= 0.12 {
+				twarze[i] = [2]float64{x, y}
+			}
+		}
+	}
 	// nagłówek za osobą: maska liczona na tym samym obrazie, który trafi do filmu (pierwsze sekundy)
 	hakKoniec := math.Min(2.6, plan.Czas)
 	var za *ZaOsoba
 	hakNaWierzchu := linieHaka
 	if len(linieHaka) > 0 {
 		komunikat("napisy", 0.53, "Ustawiam nagłówek za osobą")
-		obraz, wejscia, _ := zbudujFiltr(&Zlecenie{Klipy: klipy, Plan: plan, Styl: st})
+		obraz, wejscia, _ := zbudujFiltr(&Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Twarze: twarze})
 		var argWe []string
 		for _, w := range wejscia {
 			argWe = append(argWe, "-i", w)
@@ -326,7 +335,7 @@ func poleceniaMontuj(arg []string) {
 	if *muzyka != "" {
 		muz, _ = filepath.Abs(*muzyka)
 	}
-	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, MuzykaOd: *muzykaOd, MuzykaPoziom: *muzykaPoziom, Wyjscie: wy, Praca: pracaAbs, Za: za, Przebitki: przebitki}
+	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, MuzykaOd: *muzykaOd, MuzykaPoziom: *muzykaPoziom, Wyjscie: wy, Praca: pracaAbs, Za: za, Przebitki: przebitki, Twarze: twarze}
 	ostatni := 0.0
 	err = renderuj(n, enk, z, func(p float64) {
 		if p-ostatni >= 0.1 {

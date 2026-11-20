@@ -351,7 +351,24 @@ func zapiszNapisy(plik string, slowa []Slowo, st *Styl, hak []string, hakKoniec 
 	if !n.Karta.Wlaczona {
 		krycie = 0
 	}
-	for _, p := range porcje {
+	// wyróżnienia (wzór właściciela z 20.11.2026): nabijane liczby nad napisami i co kilka sekund wielkie słowo-klucz
+	// nie w czasie nagłówka (także wtedy, gdy nagłówek stoi za osobą i nie ma go w tym pliku)
+	odKiedy := hakKoniec + 0.3
+	liczby := znajdzLiczby(slowa, odKiedy)
+	wielkie := wybierzWielkieSlowa(porcje, st.Slownik, odKiedy+0.5, liczby)
+	for i, p := range porcje {
+		if wielkie[i] {
+			slowo := pokaz(p.slowa[p.akcent], true)
+			r := n.Tekst.Rozmiar * 2.4
+			if w := mT.Szerokosc(slowo, r); w > n.MaksSzer*1.1 {
+				r *= n.MaksSzer * 1.1 / w
+			}
+			kw := mT.Szerokosc(slowo, r) + 2*n.Karta.OdstepX*1.4
+			kh := r*0.86 + 2*n.Karta.OdstepY*1.3
+			x1, y1 := cx-kw/2, cy+n.Karta.Dy-kh/2
+			pis.element(p.od, p.do, x1, y1, x1+kw, y1+kh, n.Karta.Promien*1.3, n.Karta.Kolor, krycie, krojASS(n.Tekst, r, n.Akcent.Kolor)+slowo, -n.Karta.Dy)
+			continue
+		}
 		szer := 0.0
 		var t strings.Builder
 		t.WriteString(bazowy)
@@ -376,6 +393,8 @@ func zapiszNapisy(plik string, slowa []Slowo, st *Styl, hak []string, hakKoniec 
 		x1, y1 := cx-kw/2, cy+n.Karta.Dy-kh/2
 		pis.element(p.od, p.do, x1, y1, x1+kw, y1+kh, n.Karta.Promien, n.Karta.Kolor, krycie, t.String(), -n.Karta.Dy)
 	}
+	// liczba nad napisami: środek karty ok. 2,6 wysokości napisu wyżej (na rolce na wysokości piersi)
+	pis.liczbyASS(liczby, mT, cy-n.Tekst.Rozmiar*2.6)
 	if err := os.WriteFile(plik, []byte(pis.b.String()), 0o644); err != nil {
 		return nil, err
 	}
