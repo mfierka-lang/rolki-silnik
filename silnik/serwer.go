@@ -43,6 +43,25 @@ var portSilnika = 47615
 // przecinkami. Puste w kodzie źródłowym; wydanie dostaje je przy budowie: -ldflags "-X main.panelWbudowany=https://...".
 var panelWbudowany = ""
 
+// adresOkna: co otworzyć po uruchomieniu aplikacji. Panel (pierwszy adres, który odpowiada), bo tylko strona panelu
+// po zalogowaniu przekazuje silnikowi aktualizacje i muzykę; własna strona silnika tego nie robi (21.11.2026: brat
+// otwierał aplikację i nie dostawał nowej wersji). Bez internetu albo bez wbudowanego panelu: własna strona silnika.
+func adresOkna(adres string) string {
+	klient := &http.Client{Timeout: 4 * time.Second}
+	for _, p := range pochodzeniaPanelu() {
+		if !strings.HasPrefix(p, "https://") {
+			continue
+		}
+		if odp, err := klient.Get(p + "/logowanie"); err == nil {
+			odp.Body.Close()
+			if odp.StatusCode < 500 {
+				return p + "/"
+			}
+		}
+	}
+	return "http://" + adres + "/"
+}
+
 func pochodzeniaPanelu() []string {
 	var out []string
 	for _, p := range strings.Split(panelWbudowany, ",") {
@@ -665,9 +684,9 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 		}
 	}
 	if err != nil {
-		// silnik już działa (np. drugi klik w skrót): pokazujemy jego okno i kończymy
+		// silnik już działa (np. drugi klik w skrót): pokazujemy jego okno (panel) i kończymy
 		if okno {
-			otworzAdres("http://" + adres + "/")
+			otworzAdres(adresOkna(adres))
 		}
 		return
 	}
@@ -733,7 +752,7 @@ func uruchomSerwer(dane, styl string, okno bool, panel string) {
 		}
 	}()
 	if okno {
-		go func() { time.Sleep(300 * time.Millisecond); otworzAdres("http://" + adres + "/") }()
+		go func() { time.Sleep(300 * time.Millisecond); otworzAdres(adresOkna(adres)) }()
 	}
 	fmt.Println("Silnik montażu Zbliżki", wersja, "działa pod adresem http://"+adres+"/")
 	srv := &http.Server{Handler: s.straznik(mux), ReadHeaderTimeout: 10 * time.Second}
