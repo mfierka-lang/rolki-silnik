@@ -285,7 +285,7 @@ func ocenMowe(n *Narzedzia, st *Styl, praca string, i int, k *Klip) OcenaMowy {
 // ocenDzwiek: jak ocenMowe; bez słuchania (sluchaj = false) tylko pomiar głośności, bez transkrypcji.
 func ocenDzwiek(n *Narzedzia, st *Styl, praca string, i int, k *Klip, sluchaj bool) OcenaMowy {
 	o := OcenaMowy{Klip: i}
-	if !k.MaDzwiek || n.Whisper == "" || n.Model == "" {
+	if !k.MaDzwiek {
 		return o
 	}
 	wav := filepath.Join(praca, fmt.Sprintf("ocena%d.wav", i))
@@ -303,7 +303,7 @@ func ocenDzwiek(n *Narzedzia, st *Styl, praca string, i int, k *Klip, sluchaj bo
 	}
 	o.Udzial = glosno / k.Czas
 	o.Tlo, o.Glos = poziomyDzwieku(probki, czest)
-	if sluchaj && o.Udzial >= 0.25 && glosno >= 3 {
+	if sluchaj && n.Whisper != "" && n.Model != "" && o.Udzial >= 0.25 && glosno >= 3 {
 		kat := filepath.Join(praca, fmt.Sprintf("ocena%d", i))
 		os.MkdirAll(kat, 0o755)
 		defer os.RemoveAll(kat)
@@ -340,6 +340,20 @@ func glosPrzyTelefonie(o OcenaMowy) bool {
 // i gęsta mowa: tak. Osoba, która mówi i co chwilę pokazuje produkt (twarz rzadziej, 12-40% nagrania): tak, gdy
 // mowa jest gęsta, wyraźna i nie składa się z powtórek (whisper w hałasie „słyszy” w kółko to samo zdanie).
 // Rozmowy ekipy w tle są rzadkie i ciche, więc nie przechodzą (sprawdzone na 27 nagraniach z montażu szyby).
+// udzialRoznychSlow: jaka część słów jest różna (whisper w hałasie powtarza w kółko to samo zdanie).
+func udzialRoznychSlow(o OcenaMowy) float64 {
+	if o.Slow == 0 {
+		return 0
+	}
+	rozne := map[string]bool{}
+	for _, s := range o.Slowa {
+		if t := normalizuj(s.Tekst); t != "" && !toWtracenie(s.Tekst) {
+			rozne[t] = true
+		}
+	}
+	return float64(len(rozne)) / float64(o.Slow)
+}
+
 func czyWypowiedz(o OcenaMowy, twarz float64) bool {
 	if o.Slow < 8 || o.SlowNaSek < 0.9 {
 		return false
@@ -359,8 +373,10 @@ func czyWypowiedz(o OcenaMowy, twarz float64) bool {
 	if twarz >= 0.12 && o.Slow >= 15 && o.SlowNaSek >= 1.3 && o.Udzial >= 0.4 {
 		return true
 	}
-	// głos zza kamery nad ujęciami produktu: gęsta mowa tuż przy telefonie
-	return glosPrzyTelefonie(o) && o.Slow >= 25 && o.SlowNaSek >= 1.6
+	// głos bez twarzy w kadrze (zza kamery nad produktem albo twarz, której automat nie rozpoznał): wyraźna mowa blisko
+	// telefonu. Pomiar 22.11.2026: rozmowy ekipy na 24 nagraniach z montażu mają głos -26 dB i ciszej albo poniżej
+	// 0,9 słowa/s; narracja właściciela do telefonu -22 dB i 1,5 słowa/s (stary próg 1,6 ją odrzucał).
+	return o.Glos >= -24 && o.Glos-o.Tlo >= 10 && o.Slow >= 12 && o.SlowNaSek >= 1.2
 }
 
 func wczytajZadanie(plik string) (*Zadanie, error) {
@@ -590,10 +606,21 @@ func polecenieWykonaj(arg []string) {
 			if !k.MaDzwiek {
 				continue
 			}
+			// Słuchamy każdego nagrania, w którym słychać głos (właściciel 22.11.2026: „silnik ma sam zrobić transkrypcję
+			// i zrozumieć, o czym jest film, dopiero wtedy montować”). Bez słuchania zostają tylko nagrania ciche i bardzo krótkie.
 			if rodzaj != "mowa" && !mozeBycWypowiedzia(twarz, k.Czas) {
-				if maTwarz || k.Czas < 6 || k.Czas > 600 || !glosPrzyTelefonie(ocenDzwiek(n, st, z.Praca, i, k, false)) {
+				if maTwarz || k.Czas < 4 || k.Czas > 600 {
 					continue
 				}
+				if d := ocenDzwiek(n, st, z.Praca, i, k, false); d.Udzial < 0.25 || d.Glos < -32 {
+					continue
+				}
+			}
+			if n.Whisper == "" || n.Model == "" {
+				if d := ocenDzwiek(n, st, z.Praca, i, k, false); rodzaj == "mowa" || twarz >= 0.4 || glosPrzyTelefonie(d) {
+					blad(fmt.Errorf("w nagraniu słychać, że ktoś mówi, ale silnik nie ma jeszcze narzędzia do rozpoznawania mowy. Uruchom silnik ponownie i wybierz „Pobierz i przygotuj”. Jeśli film ma być bez mowy, wpisz w opisie: same ujęcia"))
+				}
+				continue
 			}
 			komunikat("mowa", 0.28+0.1*float64(i)/float64(len(klipy)), fmt.Sprintf("Słucham, co mówi osoba w nagraniu %d", i+1))
 			o := ocenMowe(n, st, z.Praca, i, k)
@@ -615,6 +642,25 @@ func polecenieWykonaj(arg []string) {
 		}
 		if len(mowione) == 0 && rodzaj == "mowa" && naj >= 0 {
 			mowione = append(mowione, oceny[naj].Klip)
+		}
+		// Z treści: gdy w co najmniej połowie nagrań z dźwiękiem ktoś mówi dużo i składnie, to jest film mówiony, nawet
+		// jeśli twarzy nie widać, a głos jest cichszy (jedno albo dwa nagrania osoby opowiadającej o produkcie).
+		if len(mowione) == 0 && rodzaj != "mowa" {
+			zDzwiekiem := 0
+			for _, k := range klipy {
+				if k.MaDzwiek {
+					zDzwiekiem++
+				}
+			}
+			var geste []int
+			for _, o := range oceny {
+				if o.Slow >= 15 && o.SlowNaSek >= 1.2 && udzialRoznychSlow(o) >= 0.45 {
+					geste = append(geste, o.Klip)
+				}
+			}
+			if len(geste) > 0 && 2*len(geste) >= zDzwiekiem {
+				mowione = geste
+			}
 		}
 		// gdy w którymś z tych nagrań widać twarz do kamery, wypowiedzią są tylko nagrania z twarzą (reszta to rozmowy ekipy w tle)
 		if len(mowione) > 1 {
@@ -898,7 +944,7 @@ func polecenieRodzajCLI(arg []string) {
 		linia := fmt.Sprintf("%-32s %6.1fs  twarz do kamery %3.0f%% (środek %.2f, %.2f)", filepath.Base(p), k.Czas, twarz*100, tx, ty)
 		if k.MaDzwiek {
 			o := ocenDzwiek(n, st, praca, i, k, false)
-			if *wszystkie || mozeBycWypowiedzia(twarz, k.Czas) || glosPrzyTelefonie(o) {
+			if *wszystkie || mozeBycWypowiedzia(twarz, k.Czas) || (k.Czas >= 4 && o.Udzial >= 0.25 && o.Glos >= -32) {
 				o = ocenMowe(n, st, praca, i, k)
 			}
 			linia += fmt.Sprintf("  tło %4.0f dB  głos %4.0f dB  głośno %3.0f%%  słów %d (%.2f/s)  wypowiedź=%v", o.Tlo, o.Glos, o.Udzial*100, o.Slow, o.SlowNaSek, czyWypowiedz(o, twarz))
