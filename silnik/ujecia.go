@@ -389,39 +389,53 @@ func polecenieUjecia(arg []string, tylkoSkan bool) {
 		rundy = 12
 	}
 	bezNajazdu = *najazdWyl
-	for runda := 1; runda <= rundy && len(wybrane) < ile; runda++ {
-		for i, o := range okna {
-			if len(wybrane) >= ile {
-				break
-			}
-			if sprawdzone[i] || o.Drgania > prog || o.Ocena > *progOceny || zKlipu[o.Klip] >= runda {
-				continue
-			}
-			// nieruchomy widok bez ludzi: jeden wystarczy (na zakończenie); kolejne dopiero, gdy brakuje materiału
-			if o.Rola == "widok" && widokow >= 1 && runda < rundy {
-				continue
-			}
-			sprawdzone[i] = true
-			podobne := false
-			for _, w := range wybrane {
-				if podobienstwo(o.Mini, w.Mini, o.MiniW) > *progPodob {
-					podobne = true
+	// Trzy podejścia. 1: ujęcia, w których coś się dzieje (ocena do progu). 2: gdy ich brakuje, także spokojne i ostre
+	// kadry bez ruchu (produkt na stole, kamera na statywie: sama ocena karze je za brak ruchu, choć są dobre).
+	// 3: gdy nadal nie ma nic, najlepsze z tego, co jest: z wrzuconych nagrań zawsze ma powstać film.
+	for podejscie := 1; podejscie <= 3 && len(wybrane) < ile; podejscie++ {
+		if podejscie == 3 && len(wybrane) > 0 {
+			break
+		}
+		for runda := 1; runda <= rundy && len(wybrane) < ile; runda++ {
+			for i, o := range okna {
+				if len(wybrane) >= ile {
 					break
 				}
-			}
-			if podobne {
-				podobnych++
-				continue
-			}
-			wybrane = append(wybrane, o)
-			zKlipu[o.Klip]++
-			if o.Rola == "widok" {
-				widokow++
+				dobre := o.Drgania <= prog && o.Ocena <= *progOceny
+				if podejscie == 2 {
+					dobre = o.Drgania <= prog && o.Jakosc <= 1.6
+				} else if podejscie == 3 {
+					dobre = true
+				}
+				if sprawdzone[i] || !dobre || zKlipu[o.Klip] >= runda {
+					continue
+				}
+				// nieruchomy widok bez ludzi: jeden wystarczy (na zakończenie); kolejne dopiero, gdy brakuje materiału
+				if o.Rola == "widok" && widokow >= 1 && runda < rundy {
+					continue
+				}
+				sprawdzone[i] = true
+				podobne := false
+				for _, w := range wybrane {
+					if podobienstwo(o.Mini, w.Mini, o.MiniW) > *progPodob {
+						podobne = true
+						break
+					}
+				}
+				if podobne {
+					podobnych++
+					continue
+				}
+				wybrane = append(wybrane, o)
+				zKlipu[o.Klip]++
+				if o.Rola == "widok" {
+					widokow++
+				}
 			}
 		}
 	}
 	if len(wybrane) == 0 {
-		blad(fmt.Errorf("żadne ujęcie nie jest wystarczająco dobre (najlepsze ma ocenę %.2f przy progu %.2f)", okna[0].Ocena, *progOceny))
+		blad(fmt.Errorf("nagrania są za krótkie, żeby wyciąć z nich ujęcie: wrzuć dłuższe nagranie"))
 	}
 	// Kolejność: tak jak nagrywano, ale gdy wiadomo, co widać, rolkę otwiera plan ogólny miejsca (najlepszy z nich),
 	// a zamyka spokojny widok bez ludzi (efekt pracy). Reszta zostaje w kolejności nagrań.

@@ -438,6 +438,7 @@ type Okno struct {
 	MiniW    int         `json:"-"`
 	Opis     *OpisUjecia `json:",omitempty"` // co widać (od modelu)
 	Rola     string      `json:",omitempty"` // otwarcie, praca, detal, widok, inne
+	Jakosc   float64     `json:",omitempty"` // sama praca kamery (1 = spokojna i ostra), bez oceny ruchu w kadrze
 }
 
 func mediana(v []float64) float64 {
@@ -505,6 +506,7 @@ func oknaKlipu(ki int, k *Klip, sk *Skan, dl float64, ile int, odstep float64) [
 		ruch := o.Akt / (1 + o.Predkosc/3)
 		ocena := jakosc / (0.5 + math.Min(ruch, 8))
 		o.Ocena = ocena
+		o.Jakosc = jakosc
 		o.MiniW = sk.MiniW
 		for d := 0; d < L/2; d++ { // miniatura z okolic środka okna
 			if m := sk.Probki[i+L/2-d].Mini; m != nil {
