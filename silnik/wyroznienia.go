@@ -105,9 +105,10 @@ func zapisLiczby(v float64, ulamki int) string {
 }
 
 // liczbyASS: karty z nabijaną liczbą nad napisami. y = środek karty.
-func (p *pisarzASS) liczbyASS(liczby []liczbaMowy, mT *Miara, y float64) {
+// dol: dolna krawędź karty z liczbą (karta stoi tuż nad napisami).
+func (p *pisarzASS) liczbyASS(liczby []liczbaMowy, mT *Miara, dol float64) {
 	n := p.st.Napisy
-	rL, rJ := n.Tekst.Rozmiar*2.2, n.Tekst.Rozmiar*1.15
+	rL, rJ := n.Tekst.Rozmiar*1.9, n.Tekst.Rozmiar*1.05
 	cx := float64(p.st.Szer) / 2
 	for _, l := range liczby {
 		koncowa := zapisLiczby(l.wartosc, l.ulamki)
@@ -122,7 +123,7 @@ func (p *pisarzASS) liczbyASS(liczby []liczbaMowy, mT *Miara, y float64) {
 		}
 		kw := szer + 2*n.Karta.OdstepX*1.4
 		kh := rL*0.86 + 2*n.Karta.OdstepY*1.3
-		x1, y1 := cx-kw/2, y-kh/2
+		x1, y1 := cx-kw/2, dol-kh
 		tekst := func(liczba string) string {
 			t := krojASS(n.Tekst, rL, n.Akcent.Kolor) + liczba
 			if l.jednostka != "" {

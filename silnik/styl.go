@@ -143,7 +143,7 @@ func wczytajStyl(plik string) (*Styl, error) {
 		s.Napisy.MaksSzer = float64(s.Szer) * 0.82
 	}
 	if s.Napisy.Y == 0 {
-		s.Napisy.Y = 0.66
+		s.Napisy.Y = 0.71
 		if s.Szer > s.Wys { // film poziomy: napisy jako wąski pasek u dołu
 			s.Napisy.Y = 0.86
 		}

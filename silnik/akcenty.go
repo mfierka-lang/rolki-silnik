@@ -82,8 +82,9 @@ func akcentyKadru(k *Karta, plan *PlanMowy, st *Styl, odKiedy float64, przebitki
 				szczyt = 1.26
 			}
 			if z.Rodzaj == "liczba" {
-				szczyt += 0.02
-				waznosc += 2
+				// Liczba ma własny akcent: nabijaną kartę na wysokości piersi. Zbliżenie w tej samej chwili powiększało
+				// twarz tak, że karta zasłaniała usta (arkusz 22.11.2026), więc przy liczbie kadr zostaje spokojny.
+				continue
 			}
 			a := AkcentKadru{Rodzaj: "punch", Od: od - 0.05, Szczyt: szczyt, Slowo: z.Akcent, Zdanie: z.Nr, waznosc: waznosc}
 			a.Do = a.Od + math.Max(punchMin+0.05, math.Min(punchMaks, do-od+0.17))

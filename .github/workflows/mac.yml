@@ -134,7 +134,8 @@ jobs:
           rozmiar() { "$DANE/bin/ffprobe" -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "$DANE/zlecenia/$1/rolka.mp4"; }
           # prawdziwe 4K (bez bezpiecznika), 4K z bezpiecznikiem pamięci = 2K, rolka pionowa z poziomych nagrań 4K = najwyżej 2K
           test "$(rozmiar ujecia4k)" = "3840,2160"
-          test "$(rozmiar ujecia4k-limit)" = "2560,1440"
+          # bezpiecznik działa tylko poniżej 11 GB pamięci; GitHub daje czasem maszynę z 14 GB, wtedy zostaje 4K
+          if [ "$(sysctl -n hw.memsize)" -lt 11811160064 ]; then test "$(rozmiar ujecia4k-limit)" = "2560,1440"; else test "$(rozmiar ujecia4k-limit)" = "3840,2160"; fi
           test "$(rozmiar mowa2k)" = "1440,2560"
           test "$(rozmiar kwadrat)" = "1080,1080"
 

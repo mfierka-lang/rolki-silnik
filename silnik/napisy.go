@@ -413,8 +413,10 @@ func zapiszNapisy(plik string, slowa []Slowo, st *Styl, hak []string, hakKoniec 
 		x1, y1 := cx-kw/2, cy+n.Karta.Dy-kh/2
 		pis.element(p.od, p.do, x1, y1, x1+kw, y1+kh, n.Karta.Promien, n.Karta.Kolor, krycie, t.String(), -n.Karta.Dy)
 	}
-	// liczba nad napisami: środek karty ok. 2,6 wysokości napisu wyżej (na rolce na wysokości piersi)
-	pis.liczbyASS(liczby, mT, cy-n.Tekst.Rozmiar*2.6)
+	// liczba tuż nad kartą napisów (właściciel 22.11.2026: napisy i liczby wychodziły na twarzy, mają być niżej).
+	// Napisy stoją na 0,71 wysokości kadru (było 0,66), karta liczby dotyka ich od góry z małym odstępem.
+	goraNapisow := cy + n.Karta.Dy - (math.Max(n.Tekst.Rozmiar, n.Akcent.Rozmiar)*0.86+2*n.Karta.OdstepY)/2
+	pis.liczbyASS(liczby, mT, goraNapisow-n.Tekst.Rozmiar*0.2)
 	if err := os.WriteFile(plik, []byte(pis.b.String()), 0o644); err != nil {
 		return nil, err
 	}
