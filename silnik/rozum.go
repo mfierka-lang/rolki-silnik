@@ -343,6 +343,7 @@ func poleLista(element map[string]any, maks int) map[string]any {
 // Jeden i ten sam na każdym komputerze, także na Macu z 8 GB pamięci, żeby film wychodził tak samo wszędzie.
 const (
 	plikModeluTresci = "Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf"
+	plikModeluGemma  = "gemma-4-E4B-it-Q4_0.gguf"
 	oknoTresci       = 4096 // tokeny: karta pyta porcjami po 24 zdania, więc większe okno tylko zajmowałoby pamięć
 )
 
@@ -355,6 +356,11 @@ func znajdzModelTresci(dane string) string {
 	}
 	if v := os.Getenv("ZM_LLM_TRESC"); v != "" {
 		return v
+	}
+	// Gemma 4 E4B rozumie treść najlepiej (porównanie 22.11.2026) i na Macu w chmurze z 7 GB pamięci zajęła 4,5 GB
+	// bez pliku wymiany, a Bielik na samym procesorze nie zdążył odpowiedzieć. Bielik zostaje dla słabszych komputerów.
+	if p := filepath.Join(dane, "modele", plikModeluGemma); plikIstnieje(p) {
+		return p
 	}
 	if p := filepath.Join(dane, "modele", plikModeluTresci); plikIstnieje(p) {
 		return p

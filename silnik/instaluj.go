@@ -61,7 +61,7 @@ func skladniki() []Skladnik {
 		// transkrypcją a składaniem filmu. Porównanie z PLLuM-4B i Gemma 4 E4B (22.11.2026): opis w CLAUDE.md.
 		{Nazwa: plikModeluTresci, Opis: "polski model, który czyta wypowiedź przed montażem: o czym jest film, najważniejsze zdania, słowa do wyróżnienia (2,9 GB)", MB: 2746, Cel: "modele", Sprawdz: plikModeluTresci, Tresc: true,
 			URL: hf + "second-state/Bielik-4.5B-v3.0-Instruct-GGUF/resolve/main/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf", SHA256: "39fb78db7c5e1582d3ef5bded109cd98606aabd5acbb5c98601155174b6763e1"},
-		{Nazwa: "gemma-4-E4B-it-Q4_0.gguf", Opis: "model piszący po polsku: nagłówki i opisy postów (4,6 GB)", MB: 4590, Cel: "modele", Sprawdz: "gemma-4-E4B-it-Q4_0.gguf", Duzy: true,
+		{Nazwa: "gemma-4-E4B-it-Q4_0.gguf", Opis: "model, który czyta wypowiedź przed montażem (o czym jest film, najważniejsze zdania, słowa do wyróżnienia) i pisze opis posta (4,6 GB)", MB: 4590, Cel: "modele", Sprawdz: "gemma-4-E4B-it-Q4_0.gguf", Duzy: true,
 			URL: hf + "ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf", SHA256: "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"},
 	}
 	switch runtime.GOOS + "/" + runtime.GOARCH {
@@ -127,8 +127,8 @@ func brakujaceSkladniki(dane string) ([]Skladnik, bool) {
 			continue
 		case s.Duzy && !stacNaDuzyModel(dane):
 			continue
-		case s.Tresc && !stacNaModelTresci(dane):
-			continue
+		case s.Tresc && (!stacNaModelTresci(dane) || stacNaDuzyModel(dane)):
+			continue // gdzie mieści się Gemma, mniejszy model nie jest potrzebny
 		}
 		brak = append(brak, s)
 		if s.Wymagany {
@@ -146,10 +146,11 @@ func brakujaceSkladniki(dane string) ([]Skladnik, bool) {
 	return brak, wymagane
 }
 
-// stacNaDuzyModel: duży model piszący tylko tam, gdzie jest na niego miejsce (12 GB wolnego dysku) i pamięć
-// (co najmniej 12 GB RAM; na słabszych komputerach teksty pochodzą z szablonu marki, a montaż jest szybszy).
+// stacNaDuzyModel: Gemma 4 E4B tam, gdzie jest na nią miejsce (12 GB wolnego dysku) i pamięć: od ok. 7 GB RAM.
+// Pomiar 22.11.2026 na Macu w chmurze z 7 GB: szczyt 4,5 GB, bez pliku wymiany (model działa między transkrypcją
+// a składaniem filmu, więc nie spotyka się z whisperem ani z ffmpeg). Wcześniej próg był 12 GB.
 func stacNaDuzyModel(dane string) bool {
-	if ram, ok := pamiecRAM(); ok && ram < 11<<30 {
+	if ram, ok := pamiecRAM(); ok && ram < 6900<<20 {
 		return false
 	}
 	wolne, ok := wolneMiejsce(dane)

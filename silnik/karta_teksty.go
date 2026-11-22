@@ -73,7 +73,7 @@ type tekstPosta struct {
 
 // tekstyFilmu: temat (do pokazania użytkownikowi), opis posta i hashtagi. Temat pochodzi z karty; bez modelu
 // to po prostu najważniejsze słowa wypowiedzi. Opis posta: najmocniejsze zdanie osoby + wezwanie z szablonu marki;
-// na komputerze z dużym modelem piszącym (od 12 GB pamięci) pisze go ten model, jak dotąd. Model treści opisu
+// na komputerze z Gemmą (od ok. 7 GB pamięci) pisze go ten model. Model treści opisu
 // posta nie pisze: w próbach koloryzował. Hashtagi zawsze z szablonu.
 func tekstyFilmu(pamiec string, st *Styl, k *Karta, tekst string, lr *leniwyRozum) (string, string, []string) {
 	temat := k.Temat
