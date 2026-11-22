@@ -1,25 +1,17 @@
 // Skracanie wypowiedzi według treści. Gdy osoba mówi dłużej, niż ma trwać film, silnik nie ucina końcówki,
 // tylko wybiera całe zdania: początek (zaczepienie widza), najważniejsze zdania ze środka i zakończenie.
-// Wybiera model piszący (gdy jest na komputerze), a bez niego reguły: zdania z tematycznymi słowami wypowiedzi,
-// słowami-kluczami marki i liczbami mają pierwszeństwo. Cięcia wypadają na pauzach między zdaniami.
+// O tym, które zdania są najważniejsze, decyduje karta treści (karta.go: wagi i role zdań od modelu albo z reguł).
+// Bez karty wybierają same reguły: zdania z tematycznymi słowami wypowiedzi, słowami-kluczami marki i liczbami
+// mają pierwszeństwo. Cięcia wypadają na pauzach między zdaniami.
 package main
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
 )
-
-// pamiecSkrotow: katalog, w którym zostaje wybór zdań zrobiony przez model. Model za każdym razem wybiera trochę
-// inaczej, a poprawka filmu i ten sam film w innej jakości mają mieć te same zdania.
-var pamiecSkrotow string
 
 type jednostkaMowy struct {
 	frazy []int // indeksy fraz składających się na zdanie (albo kilka zdań wypowiedzianych bez pauzy)
@@ -199,59 +191,105 @@ func wybierzZdaniaRegulami(j []jednostkaMowy, maks float64, st *Styl, wybrane []
 	return zostaje
 }
 
-var schematSkrotu = map[string]any{"type": "object", "properties": map[string]any{
-	"zostaja": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "maxItems": 60}}, "required": []string{"zostaja"}}
-
-// wybierzZdaniaModelem: model piszący dostaje ponumerowane zdania z czasem trwania i wybiera te, które zostają.
-func wybierzZdaniaModelem(r *Rozum, j []jednostkaMowy, maks float64) []bool {
-	if r == nil || !r.DobryWTekscie() || len(j) < 3 || len(j) > 80 {
+// wybierzZdaniaKarta: zdania według karty treści. Zostają: zdanie-hak, zakończenie (gdy coś wnosi) i początek
+// (gdy nie jest samym powitaniem), potem kolejno zdania o najwyższej wadze; przy tej samej wadze decyduje gęstość
+// treści na sekundę. Zdania o wadze 0 (powitania, dygresje) wchodzą na końcu, tylko gdy zostało miejsce.
+func wybierzZdaniaKarta(j []jednostkaMowy, k *Karta, maks float64) []bool {
+	n := len(j)
+	if k == nil || n < 3 {
 		return nil
 	}
-	var b strings.Builder
-	for i, u := range j {
-		fmt.Fprintf(&b, "[%d] (%.0f s) %s\n", i+1, math.Max(1, u.czas), u.tekst)
+	wagi, punkty, hak := k.wagiJednostek(n)
+	zostaje := make([]bool, n)
+	czas := 0.0
+	wez := func(i int) bool {
+		if i < 0 || i >= n || zostaje[i] {
+			return true
+		}
+		potrzeba := j[i].czas
+		poprzednie := i > 0 && zaczynaOdLacznika(j[i].tekst) && !zostaje[i-1]
+		if poprzednie {
+			potrzeba += j[i-1].czas // zdanie zaczynające się od „dlatego”, „ale”, „to” idzie razem z poprzednim
+		}
+		if czas+potrzeba > maks {
+			return false
+		}
+		zostaje[i] = true
+		if poprzednie {
+			zostaje[i-1] = true
+		}
+		czas += potrzeba
+		return true
 	}
-	pyt := fmt.Sprintf("To zdania z nagrania, w kolejności wypowiedzi. Film ma trwać najwyżej %.0f sekund, a całość jest za długa. "+
-		"Wybierz zdania, które zostają, tak żeby widz zrozumiał wypowiedź: mocny początek, najważniejsze informacje i zakończenie. "+
-		"Nie wybieraj zdania, które bez poprzedniego nie ma sensu, chyba że poprzednie też zostaje. Suma czasów wybranych zdań nie może przekroczyć %.0f sekund. "+
-		"Odpowiedz w JSON: {\"zostaja\":[numery zdań rosnąco]}.\n\n%s", maks, maks, b.String())
-	var o struct {
-		Zostaja []int `json:"zostaja"`
+	wez(hak)
+	if wagi[n-1] >= 1 {
+		wez(n - 1)
 	}
-	plikPamieci, zPamieci := "", false
-	if pamiecSkrotow != "" {
-		h := sha1.Sum([]byte(pyt))
-		plikPamieci = filepath.Join(pamiecSkrotow, "skrot-"+hex.EncodeToString(h[:10])+".json")
-		if b, err := os.ReadFile(plikPamieci); err == nil && json.Unmarshal(b, &o) == nil && len(o.Zostaja) > 0 {
-			zPamieci = true
+	if wagi[0] >= 1 {
+		wez(0)
+	}
+	kolejnosc := make([]int, n)
+	for i := range kolejnosc {
+		kolejnosc[i] = i
+	}
+	sort.SliceStable(kolejnosc, func(a, b int) bool {
+		x, y := kolejnosc[a], kolejnosc[b]
+		if wagi[x] != wagi[y] {
+			return wagi[x] > wagi[y]
+		}
+		return punkty[x]/math.Max(j[x].czas, 1.5) > punkty[y]/math.Max(j[y].czas, 1.5)
+	})
+	for _, i := range kolejnosc {
+		if wagi[i] > 0 {
+			wez(i)
 		}
 	}
-	if !zPamieci {
-		if err := r.pytaj("Jesteś montażystą. Skracasz wypowiedź, wybierając całe zdania. Niczego nie dopisujesz.", pyt, nil, schematSkrotu, 220, &o); err != nil {
-			return nil
+	// powitania i dygresje wracają tylko wtedy, gdy bez nich film byłby o ponad połowę krótszy niż zamówiony
+	if czas < 0.5*maks {
+		for _, i := range kolejnosc {
+			wez(i)
 		}
 	}
-	zostaje := make([]bool, len(j))
-	czas, wybranych := 0.0, 0
-	for _, nr := range o.Zostaja {
-		if nr < 1 || nr > len(j) || zostaje[nr-1] {
-			continue
+	ile := 0
+	for _, z := range zostaje {
+		if z {
+			ile++
 		}
-		zostaje[nr-1] = true
-		czas += j[nr-1].czas
-		wybranych++
 	}
-	// odpowiedź musi mieścić się w czasie i nie może być wydmuszką
-	if wybranych < 2 || czas > maks*1.06 || czas < math.Min(maks, sumaCzasu(j))*0.45 {
+	if ile < 2 {
 		return nil
-	}
-	if !zPamieci && plikPamieci != "" {
-		if b, err := json.Marshal(o); err == nil {
-			os.MkdirAll(pamiecSkrotow, 0o755)
-			os.WriteFile(plikPamieci, b, 0o644)
-		}
 	}
 	return zostaje
+}
+
+// rozdzielNaZdania: frazy wypowiedziane jednym tchem dzielone na zdania tam, gdzie po kropce jest choćby krótka
+// przerwa w głosie (wykryta przez detektor mowy). Bez tego osoba mówiąca płynnie daje bloki po kilkadziesiąt
+// sekund i skracanie może wyrzucać tylko całe bloki. Sąsiednie kawałki plan i tak skleja bez cięcia, więc
+// podział jest widoczny dopiero wtedy, gdy któreś zdanie wypada.
+func rozdzielNaZdania(fr []Fraza) []Fraza {
+	var out []Fraza
+	for _, f := range fr {
+		if f.Odrzucona != "" || len(f.Slowa) < 6 {
+			out = append(out, f)
+			continue
+		}
+		start, od := 0, f.Od
+		for i := 0; i+1 < len(f.Slowa); i++ {
+			przerwa := f.Slowa[i+1].Od - f.Slowa[i].Do
+			if !konczyZdanie(f.Slowa[i].Tekst) || przerwa < 0.05 || i+1-start < 3 || len(f.Slowa)-(i+1) < 3 || f.Slowa[i].Do-od < 1.2 {
+				continue
+			}
+			srodek := f.Slowa[i].Do + przerwa/2
+			cz := f // kopia zachowuje pozostałe pola frazy
+			cz.Od, cz.Do, cz.Slowa = od, math.Min(srodek, f.Slowa[i].Do+0.1), f.Slowa[start:i+1:i+1]
+			out = append(out, cz)
+			od, start = math.Max(srodek, f.Slowa[i+1].Od-0.08), i+1
+		}
+		cz := f
+		cz.Od, cz.Slowa = od, f.Slowa[start:]
+		out = append(out, cz)
+	}
+	return out
 }
 
 func sumaCzasu(j []jednostkaMowy) float64 {
@@ -263,28 +301,27 @@ func sumaCzasu(j []jednostkaMowy) float64 {
 }
 
 // skrocTresc: oznacza zdania, które wypadają, jako wycięte („skrót”). Zwraca opis do raportu albo "" (bez zmian).
-// Po tej funkcji plan trzeba policzyć jeszcze raz.
-func skrocTresc(fr []Fraza, czasPlanu, maks float64, st *Styl, r *Rozum) string {
+// Po tej funkcji plan trzeba policzyć jeszcze raz. Karta treści (k) decyduje, które zdania są najważniejsze;
+// bez karty wybierają same reguły.
+func skrocTresc(fr []Fraza, czasPlanu, maks float64, st *Styl, k *Karta) string {
 	j := jednostkiMowy(fr)
 	if len(j) < 3 || maks <= 0 || czasPlanu <= maks {
 		return ""
 	}
 	// czasy zdań są przybliżone (pauzy między zdaniami bywają dłuższe niż przyjęte), stąd poprawka do czasu planu
 	cel := maks * math.Min(1, sumaCzasu(j)/czasPlanu) * 0.97
-	kto := "model piszący"
-	zostaje := wybierzZdaniaModelem(r, j, cel)
+	kto := "karta treści"
+	zostaje := wybierzZdaniaKarta(j, k, cel)
 	if zostaje == nil {
 		kto = "reguły"
 		zostaje = wybierzZdaniaRegulami(j, cel, st, nil)
+	} else if k.Zrodlo != "model" {
+		kto = "karta treści z reguł"
 	}
 	if zostaje == nil {
 		return ""
 	}
 	dopelnijZalezne(j, zostaje, cel)
-	if kto != "reguły" { // model bywa zbyt oszczędny: wolny czas wypełniają kolejne najważniejsze zdania
-		zostaje = wybierzZdaniaRegulami(j, cel, st, zostaje)
-		dopelnijZalezne(j, zostaje, cel)
-	}
 	wyciete := 0
 	for i, u := range j {
 		if zostaje[i] {
@@ -298,5 +335,5 @@ func skrocTresc(fr []Fraza, czasPlanu, maks float64, st *Styl, r *Rozum) string 
 	if wyciete == 0 {
 		return ""
 	}
-	return fmt.Sprintf("wypowiedź skrócona według treści do ok. %.0f s: zostało %d z %d zdań, z początkiem i zakończeniem (wybór: %s)", maks, len(j)-wyciete, len(j), kto)
+	return fmt.Sprintf("wypowiedź skrócona według treści do ok. %.0f s: zostało %d z %d części wypowiedzi, najważniejsze według wag (wybór: %s)", maks, len(j)-wyciete, len(j), kto)
 }

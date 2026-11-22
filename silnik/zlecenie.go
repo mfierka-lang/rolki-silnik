@@ -430,6 +430,12 @@ func napiszPost(r *Rozum, st *Styl, zrodlo, poczatek string) (string, []string) 
 	if n := len([]rune(opis)); n < 30 || strings.ContainsAny(opis, "{}[]<>") {
 		return szablonOpis, szablonTagi
 	}
+	// model, który zamiast opisu tłumaczy się, że nie ma materiału o marce: wtedy szablon
+	for _, odmowa := range []string{"nie mam ", "nie mogę", "nie moge", "proszę dostarcz", "prosze dostarcz", "nie komentuj", "brak informacji", "nie posiadam"} {
+		if strings.Contains(strings.ToLower(opis), odmowa) {
+			return szablonOpis, szablonTagi
+		}
+	}
 	if st.Post.Wezwanie != "" && !strings.Contains(strings.ToLower(opis), "zblizka.pl") {
 		opis += "\n\n" + st.Post.Wezwanie
 	}
@@ -720,21 +726,27 @@ func polecenieWykonaj(arg []string) {
 			naglowek = wzor.Naglowek
 		}
 		w.Temat, w.Opis, w.Hashtagi = wzor.Temat, wzor.Opis, wzor.Hashtagi
+	} else if len(mowione) > 0 {
+		// film mówiony: nagłówek, temat i opis posta powstają w montażu razem z kartą treści (jedno wczytanie modelu)
 	} else if potrzebnyTekst {
 		komunikat("teksty", 0.38, "Czytam opis i przygotowuję teksty")
-		r, errR := uruchomRozum(n, z.Praca, "tekst")
+		var r *Rozum
+		var errR error
+		// duży model piszący (opis posta), a gdy go nie ma, model treści: nagłówek z opisu pisze lepiej niż mały model od obrazów
+		if m := znajdzModelPiszacy(dane); m != "" {
+			r, errR = uruchomModel(n, z.Praca, "tekst", m, "", 8192)
+		} else if m := znajdzModelTresci(dane); m != "" {
+			r, errR = uruchomModel(n, z.Praca, "tekst", m, "", oknoTresci)
+		} else if os.Getenv("ZM_BEZ_MODELU") == "" {
+			r, errR = uruchomRozum(n, z.Praca, "tekst")
+		}
 		if errR != nil {
 			w.Raport = append(w.Raport, "Model piszący nie wystartował, teksty pochodzą z szablonu.")
 		}
 		if len(naglowek) == 0 && !ust.BezNaglowka {
 			naglowek = naglowekZOpisu(r, z.Opis)
 		}
-		if len(mowione) > 0 {
-			w.Temat = tematWypowiedzi(r, zrodloPosta)
-			w.Opis, w.Hashtagi = napiszPost(r, st, zrodloPosta, pierwszeZdania(zrodloPosta, 2))
-		} else {
-			w.Opis, w.Hashtagi = napiszPost(r, st, z.Opis, "")
-		}
+		w.Opis, w.Hashtagi = napiszPost(r, st, z.Opis, "")
 		r.Zamknij()
 	} else {
 		w.Opis, w.Hashtagi = opisPosta(st, "", z.Opis)
@@ -787,21 +799,36 @@ func polecenieWykonaj(arg []string) {
 				a = append(a, "--przebitki", lista)
 			}
 		}
+		if wzor == nil {
+			if hak == "" && !ust.BezNaglowka && !ust.BezNapisow {
+				a = append(a, "--naglowek-auto", "--opis", z.Opis)
+			}
+			a = append(a, "--teksty")
+		}
 		for _, i := range mowione {
 			a = append(a, klipy[i].Plik)
 		}
 		poleceniaMontuj(a)
 		var m struct {
-			Czas      float64     `json:"czas"`
-			Raport    []string    `json:"raport"`
-			Tekst     string      `json:"tekst"`
-			Przebitki []Przebitka `json:"przebitki"`
-			ZaOsoba   bool        `json:"zaOsoba"`
+			Czas        float64     `json:"czas"`
+			Raport      []string    `json:"raport"`
+			Tekst       string      `json:"tekst"`
+			Przebitki   []Przebitka `json:"przebitki"`
+			ZaOsoba     bool        `json:"zaOsoba"`
+			Naglowek    []string    `json:"naglowek"`
+			Temat       string      `json:"temat"`
+			Opis        string      `json:"opis"`
+			Hashtagi    []string    `json:"hashtagi"`
+			Zrozumienie []string    `json:"zrozumienie"` // co silnik zrozumiał z wypowiedzi (karta treści)
 		}
 		if b, err := os.ReadFile(filepath.Join(z.Praca, "mowa.json")); err == nil {
 			json.Unmarshal(b, &m)
 		}
 		w.Czas, w.Tekst = m.Czas, m.Tekst
+		if wzor == nil {
+			w.Temat, w.Opis, w.Hashtagi, w.Naglowek = m.Temat, m.Opis, m.Hashtagi, m.Naglowek
+		}
+		w.Raport = append(w.Raport, m.Zrozumienie...)
 		for _, r := range m.Raport {
 			w.Raport = append(w.Raport, zdanieRaportu(r))
 		}

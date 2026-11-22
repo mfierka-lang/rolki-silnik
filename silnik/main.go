@@ -89,6 +89,8 @@ func main() {
 		}
 	case "rodzaj":
 		polecenieRodzajCLI(os.Args[2:])
+	case "karta": // próba: karta treści dla transkrypcji z pliku (jedno zdanie w linii)
+		polecenieKarta(os.Args[2:])
 	case "font":
 		for _, p := range os.Args[2:] {
 			b, err := os.ReadFile(p)
@@ -135,12 +137,13 @@ func poleceniaMontuj(arg []string) {
 	maks := fs.Float64("maks", 0, "największa długość filmu w sekundach (0 = bez limitu)")
 	pomin := fs.Int("pomin", 0, "ile zdań z początku wypowiedzi pominąć (uwaga: skróć początek)")
 	przebitkiPlik := fs.String("przebitki", "", "plik JSON z listą nagrań bez mowy: ich fragmenty wejdą jako przebitki")
+	naglowekAuto := fs.Bool("naglowek-auto", false, "gdy nie ma --hak: nagłówek z opisu, a bez opisu z karty treści")
+	teksty := fs.Bool("teksty", false, "przygotuj temat, opis posta i hashtagi (trafiają do mowa.json)")
 	fs.Parse(arg)
 	pliki := fs.Args()
 	if len(pliki) == 0 {
 		blad(fmt.Errorf("podaj co najmniej jedno nagranie"))
 	}
-	_ = opis
 	start := time.Now()
 
 	n, err := znajdzNarzedzia(katalogDanych(*dane))
@@ -232,19 +235,30 @@ func poleceniaMontuj(arg []string) {
 		}
 	}
 	if *maks > 0 && plan.Czas > *maks {
-		// za długa wypowiedź: zostają najważniejsze zdania z początkiem i zakończeniem (zamiast ucięcia końcówki)
-		komunikat("plan", 0.525, "Skracam wypowiedź do najważniejszych zdań")
-		var r *Rozum
-		if m, _ := znajdzModelLLM(n.Dane, "tekst"); m != "" && os.Getenv("ZM_BEZ_MODELU") == "" { // zmienna: próba toru bez dużego modelu (komputer z 8 GB)
-			if fi, err := os.Stat(m); err == nil && fi.Size() >= 2500<<20 { // tylko duży model piszący; mały wybiera gorzej niż reguły
-				r, _ = uruchomRozum(n, pracaAbs, "tekst")
+		// wypowiedź trzeba będzie skrócić: zdania mówione jednym tchem stają się osobnymi częściami do wyboru
+		if podzielone := rozdzielNaZdania(frazy); len(podzielone) > len(frazy) {
+			frazy = podzielone
+			plan = zaplanujMowe(frazy, czasy, st)
+			if opisPominiecia != "" {
+				plan.Raport = append(plan.Raport, opisPominiecia)
 			}
 		}
-		pamiecSkrotow = filepath.Join(n.Dane, "mowa")
-		opisSkrotu := skrocTresc(frazy, plan.Czas, *maks, st, r)
-		if r != nil {
-			r.Zamknij()
-		}
+	}
+	// 3a. karta treści: silnik najpierw czyta wypowiedź (typ, temat, najważniejsze zdania, słowa-akcenty), dopiero
+	// potem montuje. Model treści działa tylko przez tę chwilę: whisper już skończył, a ffmpeg jeszcze nie składa filmu.
+	// Odpowiedzi zostają w pamięci silnika, więc poprawka filmu nie uruchamia modelu drugi raz.
+	komunikat("karta", 0.505, "Czytam wypowiedź: o czym jest film")
+	pamiecTresci := filepath.Join(n.Dane, "mowa")
+	lr := &leniwyRozum{n: n, praca: pracaAbs, model: znajdzModelTresci(n.Dane)}
+	defer lr.Zamknij()
+	karta := przygotujKarte(zdaniaKarty(frazy), st, pamiecTresci, lr.nazwa(), lr.daj, func(t string) { komunikat("karta", 0.51, t) })
+	if lr.Blad != nil {
+		karta.Uwagi = append(karta.Uwagi, "model treści nie wystartował: "+lr.Blad.Error())
+	}
+	if *maks > 0 && plan.Czas > *maks {
+		// za długa wypowiedź: zostają zdania najważniejsze według karty treści (zamiast ucięcia końcówki)
+		komunikat("plan", 0.525, "Skracam wypowiedź do najważniejszych zdań")
+		opisSkrotu := skrocTresc(frazy, plan.Czas, *maks, st, karta)
 		if opisSkrotu != "" {
 			plan = zaplanujMowe(frazy, czasy, st)
 			if opisPominiecia != "" {
@@ -257,10 +271,25 @@ func poleceniaMontuj(arg []string) {
 	if len(plan.Odcinki) == 0 {
 		blad(fmt.Errorf("po wycięciu pauz nic nie zostało"))
 	}
+	karta.przypnijDoPlanu(plan)
+	var tekst []string
+	for _, s := range plan.Slowa {
+		tekst = append(tekst, s.Tekst)
+	}
+	// nagłówek: wpisany ręcznie, z opisu użytkownika, a bez opisu tytuł z karty treści (same słowa z wypowiedzi)
 	var linieHaka []string
 	if *hak != "" {
 		linieHaka = strings.Split(*hak, "|")
+	} else if *naglowekAuto && !*bezNapisow {
+		linieHaka = naglowekFilmu(pamiecTresci, *opis, karta, lr)
 	}
+	// temat, opis posta i hashtagi: dopóki model treści jest w pamięci
+	temat, opisPostaFilmu, hashtagi := "", "", []string(nil)
+	if *teksty {
+		komunikat("teksty", 0.528, "Przygotowuję opis posta")
+		temat, opisPostaFilmu, hashtagi = tekstyFilmu(pamiecTresci, st, karta, strings.Join(tekst, " "), lr)
+	}
+	lr.Zamknij() // model zwalnia pamięć przed maską osoby, przebitkami i składaniem filmu
 	slowaNapisow := plan.Slowa
 	if *bezNapisow {
 		slowaNapisow = nil
@@ -294,13 +323,9 @@ func poleceniaMontuj(arg []string) {
 			hakNaWierzchu = nil
 		}
 	}
-	fonty, err := zapiszNapisy(filepath.Join(pracaAbs, "napisy.ass"), slowaNapisow, st, hakNaWierzchu, hakKoniec)
+	fonty, err := zapiszNapisy(filepath.Join(pracaAbs, "napisy.ass"), slowaNapisow, st, hakNaWierzchu, hakKoniec, karta.akcentyNapisow())
 	if err != nil {
 		blad(err)
-	}
-	var tekst []string
-	for _, s := range plan.Slowa {
-		tekst = append(tekst, s.Tekst)
 	}
 	os.WriteFile(filepath.Join(pracaAbs, "tekst.txt"), []byte(strings.Join(tekst, " ")+"\n"), 0o644)
 	var odrz []string
@@ -328,6 +353,20 @@ func poleceniaMontuj(arg []string) {
 		}
 	}
 
+	// 3c. akcenty kadru z treści: zbliżenia na słowa wskazane przez kartę (nie na nagłówku i nie pod przebitką)
+	odAkcentow := 0.8
+	if len(linieHaka) > 0 {
+		odAkcentow = hakKoniec + 0.3
+	}
+	akcenty := akcentyKadru(karta, plan, st, odAkcentow, przebitki)
+	if b, err := json.MarshalIndent(map[string]any{"karta": karta, "akcenty": akcenty}, "", " "); err == nil {
+		os.WriteFile(filepath.Join(pracaAbs, "karta.json"), b, 0o644)
+	}
+	zrozumienie := karta.raport()
+	if s := opisAkcentow(akcenty); s != "" {
+		zrozumienie = append(zrozumienie, s+".")
+	}
+
 	// 4. render
 	enk := wybierzEnkoder(n, st)
 	komunikat("render", 0.55, "Składam rolkę ("+enk.Nazwa+")")
@@ -335,7 +374,7 @@ func poleceniaMontuj(arg []string) {
 	if *muzyka != "" {
 		muz, _ = filepath.Abs(*muzyka)
 	}
-	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, MuzykaOd: *muzykaOd, MuzykaPoziom: *muzykaPoziom, Wyjscie: wy, Praca: pracaAbs, Za: za, Przebitki: przebitki, Twarze: twarze}
+	z := &Zlecenie{Klipy: klipy, Plan: plan, Styl: st, Fonty: fonty, Muzyka: muz, MuzykaOd: *muzykaOd, MuzykaPoziom: *muzykaPoziom, Wyjscie: wy, Praca: pracaAbs, Za: za, Przebitki: przebitki, Twarze: twarze, Akcenty: akcenty}
 	ostatni := 0.0
 	err = renderuj(n, enk, z, func(p float64) {
 		if p-ostatni >= 0.1 {
@@ -352,7 +391,9 @@ func poleceniaMontuj(arg []string) {
 	if err != nil {
 		blad(err)
 	}
-	podsumowanie, _ := json.Marshal(map[string]any{"czas": plan.Czas, "raport": plan.Raport, "tekst": strings.Join(tekst, " "), "przebitki": przebitki, "zaOsoba": za != nil})
+	podsumowanie, _ := json.Marshal(map[string]any{"czas": plan.Czas, "raport": plan.Raport, "tekst": strings.Join(tekst, " "), "przebitki": przebitki, "zaOsoba": za != nil,
+		"naglowek": linieHaka, "temat": temat, "opis": opisPostaFilmu, "hashtagi": hashtagi, "zrozumienie": zrozumienie, "akcenty": akcenty,
+		"karta": map[string]any{"zrodlo": karta.Zrodlo, "model": karta.Model, "typ": karta.Typ, "temat": karta.Temat, "tytul": karta.Tytul, "hak": karta.Hak, "trwalo": karta.Trwalo, "zPamieci": karta.ZPamieci, "startModelu": lr.Start}})
 	os.WriteFile(filepath.Join(pracaAbs, "mowa.json"), podsumowanie, 0o644)
 	komunikat("gotowe", 1, fmt.Sprintf("Gotowe w %.0f s: %s", time.Since(start).Seconds(), strings.Join(plan.Raport, "; ")))
 }

@@ -26,6 +26,7 @@ import (
 )
 
 type Rozum struct {
+	koniec   chan error // zamknięcie procesu modelu
 	cmd      *exec.Cmd
 	adres    string
 	klucz    string
@@ -102,8 +103,23 @@ func znajdzModelLLM(dane, rola string) (model, mmproj string) {
 }
 
 // DobryWTekscie: czy model nadaje się do pisania tekstów, które zobaczy klient (opis posta). Małe modele mylą się
-// w polskiej pisowni, więc poniżej ok. 3 GB teksty biorą się z szablonu marki.
-func (r *Rozum) DobryWTekscie() bool { return r != nil && r.rozmiar >= 2500<<20 }
+// w polskiej pisowni albo koloryzują (próba 22.11.2026: model treści 2,9 GB dopisywał „Odkryj moc…” i emotikony),
+// więc poniżej 4 GB opis posta bierze się z szablonu marki i słów osoby.
+func (r *Rozum) DobryWTekscie() bool { return r != nil && r.rozmiar >= progModeluPiszacego }
+
+const progModeluPiszacego = 4000 << 20
+
+// znajdzModelPiszacy: duży model piszący opisy postów (jest tylko na komputerach z co najmniej 12 GB pamięci) albo "".
+func znajdzModelPiszacy(dane string) string {
+	if os.Getenv("ZM_BEZ_MODELU") != "" {
+		return ""
+	}
+	m, _ := znajdzModelLLM(dane, "tekst")
+	if fi, err := os.Stat(m); m == "" || err != nil || fi.Size() < progModeluPiszacego {
+		return ""
+	}
+	return m
+}
 
 func wolnyPort() (int, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -120,6 +136,12 @@ func wolnyPort() (int, error) {
 // niż sam procesor; macOS: Metal jest w zwykłej wersji), a gdy nie wystartuje, wersja na sam procesor.
 func uruchomRozum(n *Narzedzia, praca, rola string) (*Rozum, error) {
 	model, mmproj := znajdzModelLLM(n.Dane, rola)
+	return uruchomModel(n, praca, rola, model, mmproj, 8192)
+}
+
+// uruchomModel: llama-server z podanym modelem i rozmiarem okna (tokeny). Mniejsze okno to mniej pamięci:
+// karta treści pyta porcjami i mieści się w 4096.
+func uruchomModel(n *Narzedzia, praca, rola, model, mmproj string, kontekst int) (*Rozum, error) {
 	if model == "" {
 		return nil, nil
 	}
@@ -139,7 +161,7 @@ func uruchomRozum(n *Narzedzia, praca, rola string) (*Rozum, error) {
 	}
 	var ostatni error
 	for _, serwer := range serwery {
-		r, err := startRozumu(n, praca, rola, serwer, model, mmproj)
+		r, err := startRozumu(n, praca, rola, serwer, model, mmproj, kontekst)
 		if err == nil {
 			return r, nil
 		}
@@ -148,7 +170,7 @@ func uruchomRozum(n *Narzedzia, praca, rola string) (*Rozum, error) {
 	return nil, ostatni
 }
 
-func startRozumu(n *Narzedzia, praca, rola, serwer, model, mmproj string) (*Rozum, error) {
+func startRozumu(n *Narzedzia, praca, rola, serwer, model, mmproj string, kontekst int) (*Rozum, error) {
 	port, err := wolnyPort()
 	if err != nil {
 		return nil, err
@@ -167,7 +189,11 @@ func startRozumu(n *Narzedzia, praca, rola, serwer, model, mmproj string) (*Rozu
 		watki = 8
 	}
 	arg := []string{"-m", model, "--host", "127.0.0.1", "--port", fmt.Sprint(port), "--api-key", r.klucz,
-		"-c", "8192", "-t", fmt.Sprint(watki), "--no-webui", "-np", "1", "--reasoning", "off"}
+		"-c", fmt.Sprint(kontekst), "-t", fmt.Sprint(watki), "--no-webui", "-np", "1", "--reasoning", "off"}
+	if kontekst <= 4096 {
+		// oszczędnie (komputer z 8 GB): bez pamięci podręcznej rozmów w RAM (domyślnie do 8 GB) i bez punktów kontrolnych okna
+		arg = append(arg, "--cache-ram", "0", "--ctx-checkpoints", "0")
+	}
 	if mmproj != "" {
 		arg = append(arg, "--mmproj", mmproj)
 	}
@@ -187,7 +213,8 @@ func startRozumu(n *Narzedzia, praca, rola, serwer, model, mmproj string) (*Rozu
 		return nil, fmt.Errorf("model językowy nie wystartował: %v", err)
 	}
 	koniec := make(chan error, 1)
-	go func() { koniec <- r.cmd.Wait() }()
+	r.koniec = koniec
+	go func(c *exec.Cmd) { koniec <- c.Wait() }(r.cmd)
 	// wczytanie modelu: zwykle kilka sekund, na wolnym dysku do minuty
 	for start := time.Now(); time.Since(start) < 3*time.Minute; {
 		select {
@@ -215,6 +242,12 @@ func (r *Rozum) Zamknij() {
 	}
 	if r.cmd != nil && r.cmd.Process != nil {
 		r.cmd.Process.Kill()
+		// chwila na oddanie pamięci, zanim ruszy następny duży program (ffmpeg, model sylwetki)
+		select {
+		case <-r.koniec:
+		case <-time.After(3 * time.Second):
+		}
+		r.cmd = nil
 	}
 	if r.dziennik != nil {
 		r.dziennik.Close()
@@ -237,6 +270,23 @@ func (r *Rozum) pytaj(system, tekst string, obrazy [][]byte, schemat map[string]
 		"messages": rozmowa, "temperature": 0.2, "max_tokens": maksTokenow, "cache_prompt": false,
 		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "odpowiedz", "strict": true, "schema": schemat}},
 	})
+	return r.wyslij(cialo, wynik)
+}
+
+// pytajGramatyka: jak pytaj, ale kształt odpowiedzi narzuca gramatyka GBNF zamiast schematu JSON. Gramatyka bez
+// wolnych odstępów: przy schemacie mały model potrafi wypełniać odpowiedź pustymi znakami aż do limitu.
+func (r *Rozum) pytajGramatyka(system, tekst, gramatyka string, maksTokenow int, wynik any) error {
+	rozmowa := []map[string]any{}
+	if system != "" {
+		rozmowa = append(rozmowa, map[string]any{"role": "system", "content": system})
+	}
+	rozmowa = append(rozmowa, map[string]any{"role": "user", "content": tekst})
+	cialo, _ := json.Marshal(map[string]any{"messages": rozmowa, "temperature": 0.2, "max_tokens": maksTokenow, "cache_prompt": false, "grammar": gramatyka})
+	return r.wyslij(cialo, wynik)
+}
+
+// wyslij: zapytanie do llama-server i odpowiedź rozebrana z JSON-a do wynik.
+func (r *Rozum) wyslij(cialo []byte, wynik any) error {
 	ctx, stop := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer stop()
 	rq, _ := http.NewRequestWithContext(ctx, "POST", r.adres+"/v1/chat/completions", bytes.NewReader(cialo))
@@ -261,6 +311,12 @@ func (r *Rozum) pytaj(system, tekst string, obrazy [][]byte, schemat map[string]
 	if err := json.Unmarshal(b, &o); err != nil || len(o.Choices) == 0 {
 		return fmt.Errorf("model językowy: nieczytelna odpowiedź")
 	}
+	if slad := os.Getenv("ZM_SLAD"); slad != "" { // diagnostyka: surowe odpowiedzi modelu
+		if f, err := os.OpenFile(slad, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			fmt.Fprintf(f, "--- ODPOWIEDŹ (JSON)\n%s\n\n", o.Choices[0].Message.Content)
+			f.Close()
+		}
+	}
 	if err := json.Unmarshal([]byte(o.Choices[0].Message.Content), wynik); err != nil {
 		return fmt.Errorf("model językowy: odpowiedź nie pasuje do schematu (%v)", err)
 	}
@@ -281,4 +337,71 @@ func poleWybor(opis string, wartosci ...string) map[string]any {
 
 func poleLista(element map[string]any, maks int) map[string]any {
 	return map[string]any{"type": "array", "items": element, "maxItems": maks}
+}
+
+// Model treści: mały polski model, który czyta wypowiedź przed montażem (karta treści) i pisze krótkie teksty.
+// Jeden i ten sam na każdym komputerze, także na Macu z 8 GB pamięci, żeby film wychodził tak samo wszędzie.
+const (
+	plikModeluTresci = "Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf"
+	oknoTresci       = 4096 // tokeny: karta pyta porcjami po 24 zdania, więc większe okno tylko zajmowałoby pamięć
+)
+
+// znajdzModelTresci: plik modelu treści albo "" (wtedy kartę wypełniają reguły). ZM_BEZ_MODELU=1 wymusza reguły,
+// ZM_LLM_TRESC wskazuje inny plik (próby). Gdy modelu treści nie ma, a jest duży model piszący sprzed tej wersji,
+// kartę wypełnia on.
+func znajdzModelTresci(dane string) string {
+	if os.Getenv("ZM_BEZ_MODELU") != "" {
+		return ""
+	}
+	if v := os.Getenv("ZM_LLM_TRESC"); v != "" {
+		return v
+	}
+	if p := filepath.Join(dane, "modele", plikModeluTresci); plikIstnieje(p) {
+		return p
+	}
+	return znajdzModelPiszacy(dane)
+}
+
+func plikIstnieje(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// leniwyRozum: model treści uruchamiany dopiero przy pierwszym pytaniu (gdy odpowiedzi są w pamięci silnika,
+// model w ogóle nie startuje) i zamykany, zanim zacznie się składanie filmu.
+type leniwyRozum struct {
+	n         *Narzedzia
+	praca     string
+	model     string
+	r         *Rozum
+	probowano bool
+	Blad      error
+	Start     float64 // ile sekund trwało wczytanie modelu
+}
+
+func (l *leniwyRozum) nazwa() string {
+	if l == nil || l.model == "" {
+		return ""
+	}
+	return filepath.Base(l.model)
+}
+
+func (l *leniwyRozum) daj() *Rozum {
+	if l == nil || l.model == "" {
+		return nil
+	}
+	if !l.probowano {
+		l.probowano = true
+		t0 := time.Now()
+		l.r, l.Blad = uruchomModel(l.n, l.praca, "tresc", l.model, "", oknoTresci)
+		l.Start = time.Since(t0).Seconds()
+	}
+	return l.r
+}
+
+func (l *leniwyRozum) Zamknij() {
+	if l != nil && l.r != nil {
+		l.r.Zamknij()
+		l.r = nil
+	}
 }

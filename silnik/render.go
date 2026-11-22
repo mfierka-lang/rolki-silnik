@@ -24,10 +24,11 @@ type Zlecenie struct {
 	MuzykaOd     float64  // od której sekundy utworu zacząć (po cichym wstępie)
 	MuzykaPoziom float64  // głośność podkładu policzona dla tego utworu (0 = wartość z szablonu)
 	Wyjscie      string
-	Praca        string       // katalog roboczy: napisy.ass, fonty/, filtr.txt
-	Za           *ZaOsoba     // nagłówek za osobą (nil = zwykły nagłówek w napisy.ass)
-	Przebitki    []Przebitka  // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
-	Twarze       [][2]float64 // środek twarzy w każdym nagraniu (0-1 względem obrazu źródła; 0 = środek kadru)
+	Praca        string        // katalog roboczy: napisy.ass, fonty/, filtr.txt
+	Za           *ZaOsoba      // nagłówek za osobą (nil = zwykły nagłówek w napisy.ass)
+	Przebitki    []Przebitka   // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
+	Twarze       [][2]float64  // środek twarzy w każdym nagraniu (0-1 względem obrazu źródła; 0 = środek kadru)
+	Akcenty      []AkcentKadru // zbliżenia wynikające z treści (karta treści): punch, schodki, najazd
 }
 
 func liczba(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
@@ -76,6 +77,7 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 
 		// obraz: klatki odcinków, potem kadr i zbliżenia
 		var wybor, zoom []string
+		var akcenty skladnikiZoomu
 		klatka := 0
 		for _, o := range odc {
 			a := int(math.Round(o.Od * kl))
@@ -84,6 +86,7 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 			// kadr zmienia się na każdym cięciu, a w dłuższym kawałku bez cięcia także co ok. 2,5 s na początku słowa
 			// (wzór właściciela z 20.11.2026: szeroki i ciasny kadr na zmianę, twardo, mediana co 2,6 s)
 			kawalki := podzialKadru(z.Plan.Slowa, o.WyOd, float64(b-a)/kl)
+			akcenty.dodaj(z.Akcenty, o.WyOd, o.WyOd+float64(b-a)/kl, float64(klatka)/kl-o.WyOd, 1/kl)
 			for k := 0; k+1 < len(kawalki); k++ {
 				zb := st.Kadr.Zblizenia[g%len(st.Kadr.Zblizenia)]
 				if zb != 1 {
@@ -95,10 +98,8 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 			}
 			klatka += b - a
 		}
-		zexpr := "1"
-		if len(zoom) > 0 {
-			zexpr = "1+" + strings.Join(zoom, "+")
-		}
+		// tło: szeroki i ciasny kadr na zmianę; akcenty z treści: skoki ponad tło, najazd zamiast tła
+		zexpr := akcenty.wyrazenie(zoom)
 		fmt.Fprintf(&f, "[%d:v]fps=%d,select='%s',setpts=N/%d/TB", we, st.Klatki, strings.Join(wybor, "+"), st.Klatki)
 		if klip.HDR { // HLG/PQ z telefonu -> zwykłe kolory (bez tego obraz jest wyprany)
 			f.WriteString(",zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv")

@@ -1,0 +1,105 @@
+# Próba pamięci na Macu w chmurze (Apple Silicon, ok. 7 GB RAM, czyli prawie jak Mac brata z 8 GB):
+# czy model treści Bielik 4.5B i większa Gemma 4 E4B mieszczą się w pamięci bez zapychania pliku wymiany.
+# Uruchamiana ręcznie (workflow_dispatch). Transkrypcja próbna jest własna (zdania o gadżetach NFC), bez cudzych nagrań.
+name: Pamiec modeli
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pamiec:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      DANE: ${{ github.workspace }}/dane
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: silnik/go.mod
+          cache: false
+
+      - name: Maszyna
+        run: |
+          sysctl -n machdep.cpu.brand_string
+          sw_vers | tr '\n' ' '; echo
+          echo "pamięć: $(( $(sysctl -n hw.memsize) / 1048576 )) MB"
+          sysctl vm.swapusage
+
+      - name: Pamięć podręczna modeli
+        uses: actions/cache@v4
+        with:
+          path: dane/modele
+          key: modele-pamiec-v1
+
+      - name: Silnik i narzędzia
+        run: |
+          mkdir -p "$DANE"
+          cd silnik && go build -o "$DANE/montaz" . && cd ..
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          "$DANE/montaz" instaluj --dane "$DANE" | grep -v "Pobieram" || true
+          ls -la "$DANE/modele"
+
+      - name: Gemma 4 E4B (pobranie ręczne, instalator daje ją tylko od 12 GB RAM)
+        run: |
+          G="$DANE/modele/gemma-4-E4B-it-Q4_0.gguf"
+          if [ ! -f "$G" ]; then curl -sSL -o "$G" "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf"; fi
+          shasum -a 256 "$G"
+          B="$DANE/modele/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf"
+          if [ ! -f "$B" ]; then curl -sSL -o "$B" "https://huggingface.co/second-state/Bielik-4.5B-v3.0-Instruct-GGUF/resolve/main/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf"; fi
+          shasum -a 256 "$B"
+
+      - name: Transkrypcja próbna
+        run: |
+          cat > zdania.txt <<'EOF'
+          Cześć, dzisiaj pokażę wam, jak działa brelok NFC z logo firmy.
+          Wystarczy przyłożyć telefon do breloka i od razu otwiera się wizytówka firmy.
+          Nie trzeba instalować żadnej aplikacji, działa to na iPhonie i na Androidzie.
+          Na wizytówce klient może zadzwonić, wyznaczyć trasę albo zostawić opinię w Google.
+          Właśnie opinie są najważniejsze, bo to one ściągają nowych klientów.
+          Breloki drukujemy w 3D, w kolorach waszego logo.
+          Mamy dwie wersje: sam druk 3D albo druk z pełnokolorowym nadrukiem.
+          Minimalne zamówienie to pięćdziesiąt sztuk.
+          Przy pięciuset sztukach jeden brelok kosztuje sześć złotych pięćdziesiąt groszy netto.
+          Projekt robimy za darmo i dostajecie kilka wersji do wyboru.
+          A teraz najciekawsze: w panelu widzicie, ile osób przyłożyło telefon.
+          Widać też, który gadżet pracuje najlepiej, brelok, magnes czy stojak na ladzie.
+          Kiedyś miałem klienta, który myślał, że to za drogie.
+          Po miesiącu przyszedł po kolejne dwieście sztuk.
+          Swoją drogą, wczoraj była piękna pogoda nad morzem.
+          Wracając do tematu, chip możecie przeprogramować w każdej chwili.
+          Zmieniacie adres, a brelok dalej działa, nie trzeba drukować nowych.
+          Produkcja trwa od siedmiu do dziesięciu dni roboczych.
+          Jeśli się spieszycie, jest ekspres w trzy do pięciu dni.
+          Napiszcie w komentarzu słowo brelok, a wyślę wam przykładowe projekty.
+          EOF
+          wc -l zdania.txt
+
+      - name: Pomiar (Bielik, potem Gemma)
+        run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+          cd silnik
+          for m in Bielik-4.5B-v3.0-Instruct-Q4_K_M gemma-4-E4B-it-Q4_0; do
+            echo "=== $m"
+            sysctl vm.swapusage
+            ( maks=0; while true; do
+                p=$(pgrep -f llama-server | head -1)
+                if [ -n "$p" ]; then r=$(ps -o rss= -p "$p" 2>/dev/null | tr -d ' '); [ -n "$r" ] && [ "$r" -gt "$maks" ] && maks=$r && echo "$maks" > /tmp/maks-$m; fi
+                sleep 0.5
+              done ) &
+            S=$!
+            /usr/bin/time -l "$DANE/montaz" karta --dane "$DANE" --model "$DANE/modele/$m.gguf" --etykieta "-$m" ../zdania.txt 2>&1 | grep -v "^ *[0-9]* .*\(signals\|messages\|swaps\|block\|context\|page reclaims\|instructions\|cycles\|involuntary\|voluntary\)" || true
+            kill $S 2>/dev/null || true
+            echo "szczyt pamięci llama-server: $(( $(cat /tmp/maks-$m 2>/dev/null || echo 0) / 1024 )) MB"
+            sysctl vm.swapusage
+            memory_pressure | tail -1
+            echo
+          done
+          cp ../zdania.karta-*.json . 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: karty
+          path: zdania.karta-*.json

@@ -1,5 +1,7 @@
 // Plan cięć rolki mówionej: z fragmentów mowy i słów powstaje lista odcinków, które zostają.
-// Odpadają: cisza, wtrącenia (yyy, eee, oddech), porzucone podejścia do zdania (zostaje ostatnie, pełne).
+// Odpadają: cisza, wtrącenia (yyy, eee, oddech), porzucone podejścia do zdania (zostaje ostatnie, pełne),
+// a od 22.11.2026 także falstarty, dosłowne powtórzenia, klapsy („jeszcze raz”) i pauzy ukryte w rozciągniętych
+// słowach (powtorki.go; transkrypcja dosłuchuje miejsca, w których Whisper pominął powtórkę: mowa.go).
 // Zasada ostrożności: wątpliwy fragment zostaje, bo powtórkę łatwiej wyciąć poprawką niż odzyskać wyciętą treść.
 package main
 
@@ -16,6 +18,11 @@ type Fraza struct {
 	Od, Do    float64 // granice mowy w nagraniu źródłowym
 	Slowa     []Slowo
 	Odrzucona string // "" albo powód
+	// Ciecia: zdarzenia do raportu zapisane przy tej frazie (wtrącenie, falstart, powtórzone podejście...). Zostają
+	// przy frazie, więc raport jest taki sam także wtedy, gdy plan liczy się drugi raz (po skróceniu wypowiedzi).
+	Ciecia []string
+	// TnijPrzed, TnijPo: granica frazy powstała przez wycięcie słów, więc cięcie musi tam być także przy krótkiej przerwie.
+	TnijPrzed, TnijPo bool
 }
 
 type Odcinek struct {
@@ -94,6 +101,8 @@ func frazyZMowy(klip int, mowa []Przedzial, slowa []Slowo, pauzaWFrazie float64)
 	if len(fr) == 0 {
 		return nil
 	}
+	przypiszProfil(klip, mowa)
+	rozciagniete := map[[2]int]float64{}
 	odleglosc := func(t float64, od, do float64) float64 { return math.Max(0, math.Max(od-t, t-do)) }
 	ostatnia := 0
 	for _, s := range slowa {
@@ -122,13 +131,21 @@ func frazyZMowy(klip int, mowa []Przedzial, slowa []Slowo, pauzaWFrazie float64)
 					w.Od = m.Od
 				}
 			}
+			// krótkie słowo trwające sekundę i dłużej kryje pauzę albo niezapisane „yyy”: nadmiar jest pauzą
+			if nad := nadmiarSlowa(*w); nad > 0 {
+				rozciagniete[[2]int{i, j}] = nad
+				w.Od = cichyPunkt(klip, w.Od+nad, 0.06)
+				if j == 0 {
+					f.Od = math.Max(f.Od, w.Od)
+				}
+			}
 			if w.Do-w.Od > 1.2 { // bardzo długie "słowo" to zwykle cisza przed nim
 				w.Od = w.Do - 1.2
 			}
 			poprz = w.Do
 		}
 	}
-	return fr
+	return rozdzielFrazy(fr, rozciagniete)
 }
 
 func slowaZnormalizowane(fr []Fraza, indeksy []int) []string {
@@ -168,37 +185,45 @@ func zgodnoscPoczatku(wczesniej, pozniej []string) float64 {
 func zaplanujMowe(fr []Fraza, czasyKlipow []float64, st *Styl) *PlanMowy {
 	plan := &PlanMowy{}
 	kl := float64(st.Klatki)
-	bezSlow, wtracenia, powtorki := 0, 0, 0
 
-	// 1. frazy bez słów (yyy, oddech, stuk) i same wtrącenia
+	// 1. frazy bez słów (yyy, oddech, stuk), same wtrącenia i wypełniacze stojące samotnie między pauzami („no znaczy”)
 	for i := range fr {
 		f := &fr[i]
+		if f.Odrzucona != "" {
+			continue
+		}
 		var prawdziwe []Slowo
-		for _, s := range f.Slowa {
-			if !toWtracenie(s.Tekst) {
+		for k, s := range f.Slowa {
+			if !wtracenieW(f.Slowa, k) {
 				prawdziwe = append(prawdziwe, s)
 			}
 		}
 		switch {
 		case len(f.Slowa) == 0:
-			f.Odrzucona = "bez słów"
-			bezSlow++
+			f.Odrzucona = ciecieBezSlow
+			f.Ciecia = append(f.Ciecia, ciecieBezSlow)
 		case len(prawdziwe) == 0:
-			f.Odrzucona = "wtrącenie"
-			wtracenia++
+			f.Odrzucona = ciecieWtrac
+			f.Ciecia = append(f.Ciecia, ciecieWtrac)
+		case toWypelniacz(slowaZnormalizowane(fr, []int{i})):
+			f.Odrzucona = ciecieWtrac
+			f.Ciecia = append(f.Ciecia, ciecieWtrac)
 		default:
 			// wtrącenie na początku albo na końcu frazy: przesuwamy granicę za nie
 			if toWtracenie(f.Slowa[0].Tekst) {
 				f.Od = math.Max(f.Od, prawdziwe[0].Od-0.06)
-				wtracenia++
+				f.Ciecia = append(f.Ciecia, ciecieWtrac)
 			}
-			if toWtracenie(f.Slowa[len(f.Slowa)-1].Tekst) {
+			if wtracenieW(f.Slowa, len(f.Slowa)-1) {
 				f.Do = math.Min(f.Do, prawdziwe[len(prawdziwe)-1].Do+0.08)
-				wtracenia++
+				f.Ciecia = append(f.Ciecia, ciecieWtrac)
 			}
 			f.Slowa = prawdziwe
 		}
 	}
+
+	// 1b. powtórki wykrywane na słowach: klaps z porzuconym podejściem, dosłowne powtórzenie, falstart, powtórzona kwestia
+	zastosujPowtorki(fr)
 
 	// 2. porzucone podejścia: gdy fraza zaczyna się tak samo jak wcześniejsza (do 4 fraz wstecz), a wcześniejsze
 	// podejście prawie w całości powtarza się na jej początku, wcześniejsze odpada
@@ -225,16 +250,25 @@ func zaplanujMowe(fr []Fraza, czasyKlipow []float64, st *Styl) *PlanMowy {
 			}
 			z := zgodnoscPoczatku(wcz, pozniej)
 			dosc := (len(wcz) >= 2 && z >= 0.75) || (len(wcz) == 1 && z == 1 && len([]rune(wcz[0])) >= 5)
+			// ostrożność: dokończone zdanie, które tylko zaczyna się podobnie („To jest szybkie. To jest tanie.”),
+			// i samotne słowo powtarzane dla efektu („Tanio. Tanio. Tanio.”) to nie są porzucone podejścia
+			ost := fr[zakres[len(zakres)-1]].Slowa
+			if z < 1 && len(ost) > 0 && konczyZdanie(ost[len(ost)-1].Tekst) {
+				dosc = false
+			}
+			if len(wcz) == 1 && len(fr[j].Slowa) < 2 {
+				dosc = false
+			}
 			if dosc {
 				wytnijOd = len(aktywne) - cof
 			}
 		}
 		if wytnijOd >= 0 {
 			for _, i := range aktywne[wytnijOd:] {
-				fr[i].Odrzucona = "powtórzone podejście"
+				fr[i].Odrzucona = ciecieKwestia
 			}
+			fr[aktywne[wytnijOd]].Ciecia = append(fr[aktywne[wytnijOd]].Ciecia, ciecieKwestia)
 			aktywne = aktywne[:wytnijOd]
-			powtorki++
 		}
 		aktywne = append(aktywne, j)
 	}
@@ -255,11 +289,17 @@ func zaplanujMowe(fr []Fraza, czasyKlipow []float64, st *Styl) *PlanMowy {
 		if j+1 < len(fr) && fr[j+1].Klip == f.Klip {
 			do = math.Min(do, (f.Do+fr[j+1].Od)/2)
 		}
+		if f.TnijPrzed { // przed frazą stały wycięte słowa: bez zapasu, żeby nie wróciła ich końcówka
+			od = math.Max(od, f.Od-0.02)
+		}
+		if f.TnijPo {
+			do = math.Min(do, f.Do+0.03)
+		}
 		od = math.Max(0, od)
 		do = math.Min(do, czasyKlipow[f.Klip])
 		if n := len(sur); n > 0 {
 			p := &sur[n-1]
-			sasiad := p.klip == f.Klip && p.frazy[len(p.frazy)-1] == j-1
+			sasiad := p.klip == f.Klip && p.frazy[len(p.frazy)-1] == j-1 && !f.TnijPrzed && !fr[j-1].TnijPo
 			if sasiad && od-p.do <= st.Ciecie.MaksPauza {
 				p.do = do
 				p.frazy = append(p.frazy, j)
@@ -299,11 +339,25 @@ func zaplanujMowe(fr []Fraza, czasyKlipow []float64, st *Styl) *PlanMowy {
 		zrodlo += c
 	}
 	plan.Raport = append(plan.Raport, fmt.Sprintf("nagranie %.1f s -> rolka %.1f s, cięć: %d", zrodlo, plan.Czas, max(0, len(plan.Odcinki)-1)))
-	if bezSlow+wtracenia > 0 {
-		plan.Raport = append(plan.Raport, fmt.Sprintf("wycięte wtrącenia i odgłosy bez słów: %d", bezSlow+wtracenia))
+	ile := map[string]int{}
+	for _, f := range fr {
+		for _, c := range f.Ciecia {
+			ile[c]++
+		}
 	}
-	if powtorki > 0 {
-		plan.Raport = append(plan.Raport, fmt.Sprintf("wycięte powtórzone podejścia do zdania: %d", powtorki))
+	for _, r := range []struct {
+		opis string
+		n    int
+	}{
+		{"wycięte wtrącenia i odgłosy bez słów", ile[ciecieBezSlow] + ile[ciecieWtrac]},
+		{"wycięte powtórzone podejścia do zdania", ile[ciecieKwestia] + ile[ciecieKlaps]},
+		{"wycięte falstarty (urwane początki zdania)", ile[ciecieFalstart]},
+		{"wycięte dosłowne powtórzenia słów", ile[ciecieDoslowne]},
+		{"skrócone pauzy ukryte w rozciągniętych słowach", ile[ciecieRozciag]},
+	} {
+		if r.n > 0 {
+			plan.Raport = append(plan.Raport, fmt.Sprintf("%s: %d", r.opis, r.n))
+		}
 	}
 	return plan
 }

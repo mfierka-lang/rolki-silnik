@@ -169,10 +169,8 @@ var rePusteMiejsca = regexp.MustCompile(`\s*,(\s*,)*\s*`)
 // słowa, które sterują montażem, a nie są treścią nagłówka
 var reSlowaStylu = regexp.MustCompile(`(?i)[,;]?\s*(\bchc[eę]\s+(mie[cć]\s+)?|\bpoprosz[eę]\s+|\bpotrzebuj[eę]\s+|\bma\s+(to\s+)?by[cć]\s+|\boko[lł]o\s+|\bw\s+proporcj[\p{L}]*\s*|\b\d{1,2}\s*[:x]\s*\d{1,2}\b|\b\d{1,3}([.,]\d)?\s*(min[\p{L}]*|sek[\p{L}]*|s)\b|\bp[oó][lł]torej\s+minut[\p{L}]*|\bdynamiczn[\p{L}]*|\benergiczn[\p{L}]*|\bspokojn[\p{L}]*|\bszybk[\p{L}]*|\bszybciej|\bwolniej|\bpowoli|\bkr[oó]tk[\p{L}]*|\bkr[oó]cej|\bd[lł]u[zż][\p{L}]*|\bm[oó]wion[\p{L}]*|\bsame uj[eę]cia|\btylko uj[eę]cia|\bbez mowy|\bbez g[lł]osu|\bbez napis[oó]w|\bbez muzyki|\bpoziom[\p{L}]*|\bpionow[\p{L}]*|\bkwadrat[\p{L}]*|\bw pionie|\bna (tiktok[\p{L}]*|instagram[\p{L}]*|youtube|yt)\b|\b(w\s+)?((jako[sś]ci|jako[sś][cć]|rozdzielczo[sś]ci|rozdzielczo[sś][cć])\s+)?(4\s?k|2\s?k|uhd|qhd|ultra\s?hd|full\s?hd|fhd|hd|2160p?|1440p?|1080p?)\b)`)
 
-var schematNaglowka = schematObiektu(map[string]any{
-	"linia1": map[string]any{"type": "string", "maxLength": 30},
-	"linia2": map[string]any{"type": "string", "maxLength": 30},
-}, "linia1", "linia2")
+// gramatykaNaglowka: dwie linie do 30 znaków (gramatyka bez wolnych odstępów, patrz karta.go).
+const gramatykaNaglowka = `root ::= "{\"linia1\":\"" zn{2,30} "\",\"linia2\":\"" zn{0,30} "\"}"` + "\n" + gramatykaZnak
 
 func liniaNaglowkaOk(s string) bool {
 	if n := len([]rune(s)); n < 2 || n > 24 { // schemat pozwala na 30: dłuższa linia jest ucięta albo za szeroka
@@ -211,7 +209,7 @@ func naglowekZOpisu(r *Rozum, opis string) []string {
 			"Opis: montaż witryn w teatrze Atelier w Sopocie\nNaglowek: {\"linia1\":\"Montaż witryn\",\"linia2\":\"Teatr Atelier, Sopot\"}\n" +
 			"Opis: nowe breloki\nNaglowek: {\"linia1\":\"Nowe breloki\",\"linia2\":\"\"}\n" +
 			"Opis: " + opis + "\nNaglowek:"
-		if err := r.pytaj("Piszesz po polsku, poprawnie, z polskimi znakami.", pyt, nil, schematNaglowka, 60, &o); err == nil {
+		if err := r.pytajGramatyka("Piszesz po polsku, poprawnie, z polskimi znakami.", pyt, gramatykaNaglowka, 60, &o); err == nil {
 			l1, l2 := przytnijLinie(czyscTekst(o.Linia1)), przytnijLinie(czyscTekst(o.Linia2))
 			if p := strings.Fields(l1); len(p) > 0 {
 				if m, jest := mianownikProduktu[strings.ToLower(p[0])]; jest {

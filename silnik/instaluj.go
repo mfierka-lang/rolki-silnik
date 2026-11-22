@@ -31,6 +31,7 @@ type Skladnik struct {
 	Sprawdz  string   // plik, którego obecność oznacza, że składnik jest na miejscu
 	Wymagany bool     // bez niego silnik nie zmontuje nawet rolki z samych ujęć
 	Duzy     bool     // duży model: tylko gdy komputer ma dość pamięci i miejsca
+	Tresc    bool     // model treści (ok. 3 GB): gdy komputer ma co najmniej 6 GB pamięci i 6 GB wolnego dysku
 }
 
 const (
@@ -55,6 +56,11 @@ func skladniki() []Skladnik {
 			URL: hf + "Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen3VL-2B-Instruct-Q4_K_M.gguf", SHA256: "089d75c52f4b7ffc56ba998ffc50aae89fcafc755f9e7208aacca281dca6c2ae"},
 		{Nazwa: "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf", Opis: "część obrazowa tego modelu (445 MB)", MB: 445, Cel: "modele", Sprawdz: "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf",
 			URL: hf + "Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf", SHA256: "f9a68fabba69c3b81e153367b2c7521030b0fa8bb0de400c9599c8e6725f9c82"},
+		// Model treści: Bielik 4.5B v3 Instruct (SpeakLeash, Apache 2.0), kwantyzacja Q4_K_M z repozytorium second-state.
+		// Czyta wypowiedź przed montażem (karta treści) i mieści się w pamięci komputera z 8 GB: działa tylko między
+		// transkrypcją a składaniem filmu. Porównanie z PLLuM-4B i Gemma 4 E4B (22.11.2026): opis w CLAUDE.md.
+		{Nazwa: plikModeluTresci, Opis: "polski model, który czyta wypowiedź przed montażem: o czym jest film, najważniejsze zdania, słowa do wyróżnienia (2,9 GB)", MB: 2746, Cel: "modele", Sprawdz: plikModeluTresci, Tresc: true,
+			URL: hf + "second-state/Bielik-4.5B-v3.0-Instruct-GGUF/resolve/main/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf", SHA256: "39fb78db7c5e1582d3ef5bded109cd98606aabd5acbb5c98601155174b6763e1"},
 		{Nazwa: "gemma-4-E4B-it-Q4_0.gguf", Opis: "model piszący po polsku: nagłówki i opisy postów (4,6 GB)", MB: 4590, Cel: "modele", Sprawdz: "gemma-4-E4B-it-Q4_0.gguf", Duzy: true,
 			URL: hf + "ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf", SHA256: "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"},
 	}
@@ -121,6 +127,8 @@ func brakujaceSkladniki(dane string) ([]Skladnik, bool) {
 			continue
 		case s.Duzy && !stacNaDuzyModel(dane):
 			continue
+		case s.Tresc && !stacNaModelTresci(dane):
+			continue
 		}
 		brak = append(brak, s)
 		if s.Wymagany {
@@ -146,6 +154,16 @@ func stacNaDuzyModel(dane string) bool {
 	}
 	wolne, ok := wolneMiejsce(dane)
 	return !ok || wolne >= 12<<30
+}
+
+// stacNaModelTresci: model treści zajmuje ok. 3,3 GB pamięci na czas czytania wypowiedzi, więc trafia na komputery
+// od 8 GB RAM (próg 6 GB, żeby objąć też maszyny zgłaszające nieco mniej) z 6 GB wolnego dysku.
+func stacNaModelTresci(dane string) bool {
+	if ram, ok := pamiecRAM(); ok && ram < 6<<30 {
+		return false
+	}
+	wolne, ok := wolneMiejsce(dane)
+	return !ok || wolne >= 6<<30
 }
 
 func przygotujNarzedzia(dane string, postep func(float64, string)) error {

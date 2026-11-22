@@ -171,32 +171,52 @@ func (p *pisarzASS) kartaStala(od, do, x1, y1, x2, y2, promien float64, kolor st
 	p.warstwa += 3
 }
 
-// wybierzWielkieSlowa: porcje, w których słowo-klucz staje się wielkim słowem: słowo ze słownika marki albo długie
-// (od 9 liter), co najmniej 6 s od poprzedniego, nie w czasie nagłówka ani nabijanej liczby, bez cyfr.
-func wybierzWielkieSlowa(porcje []porcja, slownik []string, odKiedy float64, liczby []liczbaMowy) map[int]bool {
+// wybierzWielkieSlowa: porcje, w których słowo-klucz staje się wielkim słowem, co najmniej 6 s od poprzedniego,
+// nie w czasie nagłówka ani nabijanej liczby, bez cyfr. Z kartą treści (zKarty): słowo-akcent ważnego zdania
+// (waga od 2, od 4 liter), najpierw zdania o wadze 3. Bez karty: słowo ze słownika marki albo długie (od 9 liter).
+func wybierzWielkieSlowa(porcje []porcja, slownik []string, odKiedy float64, liczby []liczbaMowy, zKarty bool) map[int]bool {
 	wynik := map[int]bool{}
-	ostatnie := -100.0
-	for i, p := range porcje {
-		if p.akcent < 0 || p.od < odKiedy || p.od-ostatnie < 6 || p.do-p.od < 0.45 {
-			continue
+	nadaje := func(p porcja, minWaga int) bool {
+		if p.akcent < 0 || p.od < odKiedy || p.do-p.od < 0.45 {
+			return false
 		}
 		s := p.slowa[p.akcent]
-		oc := ocenaSlowa(s, slownik)
-		if strings.ContainsAny(s, "0123456789") || !(oc >= 5 || (oc >= 1 && utf8.RuneCountInString(s) >= 9)) {
-			continue
+		if strings.ContainsAny(s, "0123456789") {
+			return false
 		}
-		kolizja := false
+		if zKarty {
+			if p.karta == nil || p.karta.Waga < minWaga || p.karta.Rodzaj == "liczba" || utf8.RuneCountInString(s) < 4 {
+				return false
+			}
+		} else if oc := ocenaSlowa(s, slownik); !(oc >= 5 || (oc >= 1 && utf8.RuneCountInString(s) >= 9)) {
+			return false
+		}
 		for _, l := range liczby {
 			if p.od < l.do+0.3 && p.do > l.od-0.3 {
-				kolizja = true
-				break
+				return false
 			}
 		}
-		if kolizja {
-			continue
+		return true
+	}
+	wolne := func(t float64) bool {
+		for i := range wynik {
+			if math.Abs(porcje[i].od-t) < 6 {
+				return false
+			}
 		}
-		wynik[i] = true
-		ostatnie = p.od
+		return true
+	}
+	// z kartą dwa przejścia: najpierw najważniejsze zdania, potem ważne w wolnych miejscach
+	progi := []int{0}
+	if zKarty {
+		progi = []int{3, 2}
+	}
+	for _, prog := range progi {
+		for i, p := range porcje {
+			if nadaje(p, prog) && wolne(p.od) {
+				wynik[i] = true
+			}
+		}
 	}
 	return wynik
 }

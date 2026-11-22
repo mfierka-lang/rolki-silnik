@@ -56,7 +56,7 @@ func odciskPliku(plik string) string {
 func transkrybujKlip(n *Narzedzia, k *Klip, wav, katalog, podpowiedz string) ([]Slowo, error) {
 	pamiec := ""
 	if _, err := os.Stat(k.Plik); err == nil {
-		h := sha1.Sum([]byte(fmt.Sprintf("%s|%s|%s|v2", odciskPliku(k.Plik), filepath.Base(n.Model), podpowiedz)))
+		h := sha1.Sum([]byte(fmt.Sprintf("%s|%s|%s|v3", odciskPliku(k.Plik), filepath.Base(n.Model), podpowiedz)))
 		pamiec = filepath.Join(n.Dane, "mowa", hex.EncodeToString(h[:])+".json")
 		if b, err := os.ReadFile(pamiec); err == nil {
 			var slowa []Slowo

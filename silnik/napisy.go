@@ -155,12 +155,14 @@ type porcja struct {
 	slowa  []string
 	akcent int // indeks słowa-klucza w porcji albo -1
 	od, do float64
+	karta  *AkcentSlowa // słowo-klucz wskazane przez kartę treści (waga zdania, rodzaj akcentu)
 }
 
 // podzielNaPorcje: zdania -> porcje po kilka słów mieszczące się w szerokości; w każdym zdaniu jedno słowo-klucz.
 // Podział zdania wybiera najtańszy układ: porcja nie kończy się spójnikiem ani przyimkiem ("i", "na", "nie"),
 // ostatnie słowo nie zostaje samo, przecinek to dobre miejsce cięcia.
-func podzielNaPorcje(slowa []Slowo, st *Styl, mTekst, mAkcent *Miara) []porcja {
+// akc (indeks słowa -> akcent z karty treści) wskazuje słowo-klucz zdania; bez karty (nil) wybiera je słownik marki.
+func podzielNaPorcje(slowa []Slowo, st *Styl, mTekst, mAkcent *Miara, akc map[int]AkcentSlowa) []porcja {
 	var porcje []porcja
 	n := st.Napisy
 	spacja := mTekst.Szerokosc(" ", n.Tekst.Rozmiar)
@@ -183,12 +185,26 @@ func podzielNaPorcje(slowa []Slowo, st *Styl, mTekst, mAkcent *Miara) []porcja {
 			pusty   bool
 			przecin bool
 			przerwa bool // dłuższa pauza przed słowem
+			karta   *AkcentSlowa
 		}
 		var el []element
 		klucz, najOc := -1, 0
 		for k, s := range slowa[i:j] {
 			if oc := ocenaSlowa(s.Tekst, st.Slownik); oc > najOc || (oc == najOc && oc > 0 && k > klucz) {
 				klucz, najOc = k, oc
+			}
+		}
+		var zKarty *AkcentSlowa
+		if akc != nil {
+			// karta treści: słowo-akcent zdania; zdanie bez akcentu zostaje spokojne (wyjątek: słowo ze słownika marki)
+			if najOc < 5 {
+				klucz = -1
+			}
+			for k := range slowa[i:j] {
+				if a, jest := akc[i+k]; jest && (zKarty == nil || a.Waga > zKarty.Waga) {
+					a := a
+					klucz, zKarty = k, &a
+				}
 			}
 		}
 		for k, s := range slowa[i:j] {
@@ -203,6 +219,9 @@ func podzielNaPorcje(slowa []Slowo, st *Styl, mTekst, mAkcent *Miara) []porcja {
 			}
 			poczatekZdania = konczyZdanie(s.Tekst)
 			e := element{tekst: tekst, od: s.Od, do: s.Do, klucz: k == klucz}
+			if e.klucz {
+				e.karta = zKarty
+			}
 			e.szer = mTekst.Szerokosc(tekst, n.Tekst.Rozmiar)
 			if e.klucz {
 				e.szer = mAkcent.Szerokosc(tekst, n.Akcent.Rozmiar)
@@ -267,7 +286,7 @@ func podzielNaPorcje(slowa []Slowo, st *Styl, mTekst, mAkcent *Miara) []porcja {
 			po := porcja{akcent: -1, od: el[p].od, do: el[k-1].do}
 			for q := p; q < k; q++ {
 				if el[q].klucz {
-					po.akcent = len(po.slowa)
+					po.akcent, po.karta = len(po.slowa), el[q].karta
 				}
 				po.slowa = append(po.slowa, el[q].tekst)
 			}
@@ -314,7 +333,8 @@ func bw(b bool) string {
 
 // zapiszNapisy: plik ASS z napisami mowy. Zwraca listę plików fontów potrzebnych do renderu.
 // Opcjonalny nagłówek (hak) to te same dwa bloki koloru co w rolkach z ujęć, widoczne do chwili hakKoniec.
-func zapiszNapisy(plik string, slowa []Slowo, st *Styl, hak []string, hakKoniec float64) ([]string, error) {
+// akc: słowa-akcenty z karty treści (nil = wybór ze słownika marki, jak przed kartą).
+func zapiszNapisy(plik string, slowa []Slowo, st *Styl, hak []string, hakKoniec float64, akc map[int]AkcentSlowa) ([]string, error) {
 	n := st.Napisy
 	plikT := filepath.Join(st.Katalog, n.Tekst.Plik)
 	plikA := filepath.Join(st.Katalog, n.Akcent.Plik)
@@ -326,7 +346,7 @@ func zapiszNapisy(plik string, slowa []Slowo, st *Styl, hak []string, hakKoniec 
 	if err != nil {
 		return nil, err
 	}
-	porcje := podzielNaPorcje(slowa, st, mT, mA)
+	porcje := podzielNaPorcje(slowa, st, mT, mA, akc)
 	cx, cy := float64(st.Szer)/2, float64(st.Wys)*n.Y
 	// to samo wejście co hasła na ujęciach (plansze.go), tylko krótsze: porcja mowy żyje czasem pół sekundy
 	pis := &pisarzASS{st: st, czasDruku: n.WejscieMs}
@@ -355,7 +375,7 @@ func zapiszNapisy(plik string, slowa []Slowo, st *Styl, hak []string, hakKoniec 
 	// nie w czasie nagłówka (także wtedy, gdy nagłówek stoi za osobą i nie ma go w tym pliku)
 	odKiedy := hakKoniec + 0.3
 	liczby := znajdzLiczby(slowa, odKiedy)
-	wielkie := wybierzWielkieSlowa(porcje, st.Slownik, odKiedy+0.5, liczby)
+	wielkie := wybierzWielkieSlowa(porcje, st.Slownik, odKiedy+0.5, liczby, akc != nil)
 	for i, p := range porcje {
 		if wielkie[i] {
 			slowo := pokaz(p.slowa[p.akcent], true)
