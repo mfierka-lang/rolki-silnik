@@ -244,7 +244,7 @@ func (s *Serwer) stan(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	odp := map[string]any{"ok": true, "muzyka": style, "wersja": wersja, "system": runtime.GOOS, "gotowy": !wymagane, "komplet": len(brak) == 0, "brak": nazwy, "modele": modele, "przygotowanie": s.przyg, "sprzet": s.sprzet, "synchro": s.synchro}
+	odp := map[string]any{"ok": true, "muzyka": style, "wersja": wersja, "system": runtime.GOOS, "gotowy": !wymagane, "komplet": len(brak) == 0, "brak": nazwy, "modele": modele, "przygotowanie": s.przyg, "sprzet": s.sprzet, "synchro": s.synchro, "zajawka": true}
 	if z := s.zlecenie; z != nil {
 		odp["zadanie"] = map[string]any{"id": z.ID, "stan": z.Stan, "sekundy": time.Since(z.Start).Seconds(), "wynik": z.Wynik}
 	}
@@ -343,8 +343,9 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 		Napisy     *bool    `json:"napisy"`
 		Przejscia  *bool    `json:"przejscia"`
 		Animacje   *bool    `json:"animacje"`
-		Muzyka     string   `json:"muzyka"` // "", "dynamiczny", "spokojny", "styl:Nazwa", "brak"
-		Jakosc     string   `json:"jakosc"` // "", "hd", "2k", "4k"; razem z „poprzednie” i bez uwagi: ten sam film w innej jakości
+		Zajawka    bool     `json:"zajawka"` // „Zajawka na początku” (domyślnie wyłączona)
+		Muzyka     string   `json:"muzyka"`  // "", "dynamiczny", "spokojny", "styl:Nazwa", "brak"
+		Jakosc     string   `json:"jakosc"`  // "", "hd", "2k", "4k"; razem z „poprzednie” i bez uwagi: ten sam film w innej jakości
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&we); err != nil {
 		odpowiedzBlad(w, 400, "nieczytelne zlecenie")
@@ -358,7 +359,7 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 	}
 	wylaczone := func(v *bool) bool { return v != nil && !*v }
 	z := &Zadanie{Opis: strings.TrimSpace(we.Opis), Styl: s.styl, Dane: s.dane, Format: we.Format, Dlugosc: we.Dlugosc,
-		BezNapisow: wylaczone(we.Napisy), BezPrzejsc: wylaczone(we.Przejscia), BezAnimacji: wylaczone(we.Animacje), BezMuzyki: we.Muzyka == "brak"}
+		BezNapisow: wylaczone(we.Napisy), BezPrzejsc: wylaczone(we.Przejscia), BezAnimacji: wylaczone(we.Animacje), BezMuzyki: we.Muzyka == "brak", Zajawka: we.Zajawka}
 	if we.Muzyka != "brak" {
 		z.Muzyka = we.Muzyka
 	}
@@ -371,7 +372,7 @@ func (s *Serwer) montuj(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(b, &stare) == nil {
 				z.Pliki, z.Opis, z.Popraw = stare.Pliki, stare.Opis, stare.Popraw
 				z.Format, z.Dlugosc, z.BezNapisow, z.BezPrzejsc, z.BezAnimacji = stare.Format, stare.Dlugosc, stare.BezNapisow, stare.BezPrzejsc, stare.BezAnimacji
-				z.BezMuzyki, z.Muzyka = stare.BezMuzyki, stare.Muzyka
+				z.BezMuzyki, z.Muzyka, z.Zajawka = stare.BezMuzyki, stare.Muzyka, stare.Zajawka
 				// poprawka zostaje przy tym samym utworze (to samo ziarno), chyba że uwaga prosi o inną muzykę
 				z.Ziarno, z.BezUtworu = stare.Ziarno, stare.BezUtworu
 				if z.Ziarno == "" {

@@ -29,6 +29,19 @@ type Zlecenie struct {
 	Przebitki    []Przebitka   // ujęcia z innych nagrań przykrywające obraz na czas wypowiedzi
 	Twarze       [][2]float64  // środek twarzy w każdym nagraniu (0-1 względem obrazu źródła; 0 = środek kadru)
 	Akcenty      []AkcentKadru // zbliżenia wynikające z treści (karta treści): punch, schodki, najazd
+	Zajawka      *Zajawka      // najmocniejsze zdanie na początek filmu (nil = film zaczyna się zwykle)
+}
+
+// wejscieZajawki: numer wejścia ffmpeg z fragmentem nagrania na zajawkę (ostatnie, po przebitkach).
+func (z *Zlecenie) wejscieZajawki(wejscia int) int {
+	n := wejscia + len(z.Przebitki)
+	if z.Muzyka != "" {
+		n++
+	}
+	if z.Za != nil {
+		n++
+	}
+	return n
 }
 
 func liczba(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
@@ -52,6 +65,27 @@ func kopiuj(z, do string) error {
 		return err
 	}
 	return os.WriteFile(do, b, 0o644)
+}
+
+// kadrNaTwarz: wyrażenia ffmpeg dla kadru filmu (crop) i zbliżenia (zoompan) ustawionych na twarz w nagraniu ki
+// (wcześniej na środek: ciasny kadr potrafił ucinać głowę). Bez twarzy: środek kadru.
+func kadrNaTwarz(z *Zlecenie, ki int, klip *Klip) (kadrX, zx, zy, ky string) {
+	st := z.Styl
+	ky = liczba(st.Kadr.Y)
+	kadrX, zx, zy = "(iw-ow)/2", "(iw-iw/zoom)/2", "(ih-ih/zoom)*"+ky
+	if ki < len(z.Twarze) && z.Twarze[ki][0] > 0 && klip.W > 0 && klip.H > 0 {
+		fx, fy := z.Twarze[ki][0], z.Twarze[ki][1]
+		W, H := float64(klip.W), float64(klip.H)
+		cw := math.Min(W, H*float64(st.Szer)/float64(st.Wys))
+		ch := math.Min(H, W*float64(st.Wys)/float64(st.Szer))
+		cx := math.Max(0, math.Min(W-cw, fx*W-cw/2))
+		cy := (H - ch) * st.Kadr.Y
+		tx, ty := (fx*W-cx)/cw, (fy*H-cy)/ch
+		kadrX = fmt.Sprintf("max(0,min(iw-ow,%s*iw-ow/2))", liczba(fx))
+		zx = fmt.Sprintf("max(0,min(iw-iw/zoom,%s*iw-iw/zoom/2))", liczba(tx))
+		zy = fmt.Sprintf("max(0,min(ih-ih/zoom,%s*ih-0.4*ih/zoom))", liczba(ty))
+	}
+	return
 }
 
 // zbudujFiltr: graf filtrów ffmpeg i lista plików wejściowych (tylko klipy, z których coś zostaje).
@@ -104,21 +138,7 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 		if klip.HDR { // HLG/PQ z telefonu -> zwykłe kolory (bez tego obraz jest wyprany)
 			f.WriteString(",zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv")
 		}
-		ky := liczba(st.Kadr.Y)
-		// kadr filmu i zbliżenie ustawione na twarz (wcześniej na środek: ciasny kadr potrafił ucinać głowę)
-		kadrX, zx, zy := "(iw-ow)/2", "(iw-iw/zoom)/2", "(ih-ih/zoom)*"+ky
-		if ki < len(z.Twarze) && z.Twarze[ki][0] > 0 && klip.W > 0 && klip.H > 0 {
-			fx, fy := z.Twarze[ki][0], z.Twarze[ki][1]
-			W, H := float64(klip.W), float64(klip.H)
-			cw := math.Min(W, H*float64(st.Szer)/float64(st.Wys))
-			ch := math.Min(H, W*float64(st.Wys)/float64(st.Szer))
-			cx := math.Max(0, math.Min(W-cw, fx*W-cw/2))
-			cy := (H - ch) * st.Kadr.Y
-			tx, ty := (fx*W-cx)/cw, (fy*H-cy)/ch
-			kadrX = fmt.Sprintf("max(0,min(iw-ow,%s*iw-ow/2))", liczba(fx))
-			zx = fmt.Sprintf("max(0,min(iw-iw/zoom,%s*iw-iw/zoom/2))", liczba(tx))
-			zy = fmt.Sprintf("max(0,min(ih-ih/zoom,%s*ih-0.4*ih/zoom))", liczba(ty))
-		}
+		kadrX, zx, zy, ky := kadrNaTwarz(z, ki, klip)
 		fmt.Fprintf(&f, ",crop=w='2*floor(min(iw,ih*%d/%d)/2)':h='2*floor(min(ih,iw*%d/%d)/2)':x='%s':y='(ih-oh)*%s'", st.Szer, st.Wys, st.Wys, st.Szer, kadrX, ky)
 		fmt.Fprintf(&f, ",zoompan=z='%s':x='%s':y='%s':d=1:s=%dx%d:fps=%d,setsar=1,format=yuv420p[v%d];\n", zexpr, zx, zy, st.ObrazSzer(), st.ObrazWys(), st.Klatki, we)
 		etykietyV = append(etykietyV, fmt.Sprintf("[v%d]", we))
@@ -167,15 +187,28 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 	if z.Wyjscie == "" { // sam obraz przed napisami (do maski osoby)
 		return f.String(), wejscia, czas
 	}
+	// z zajawką główna część kończy się na [vg], a zajawka z błyskiem dokleja się przed nią (czasy w głównej części bez zmian)
+	gotowy := "[v]"
+	if z.Zajawka != nil {
+		gotowy = "[vg]"
+	}
 	if z.Za != nil {
 		wejscieMaski := len(wejscia)
 		if z.Muzyka != "" {
 			wejscieMaski++
 		}
 		f.WriteString(z.Za.filtr(st, wejscieMaski, "[vc]"))
-		f.WriteString("[vz]ass=napisy.ass:fontsdir=fonty[v];\n")
+		f.WriteString("[vz]ass=napisy.ass:fontsdir=fonty" + gotowy + ";\n")
 	} else {
-		f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty[v];\n")
+		f.WriteString("[vc]ass=napisy.ass:fontsdir=fonty" + gotowy + ";\n")
+	}
+	if z.Zajawka != nil {
+		weZ := z.wejscieZajawki(len(wejscia))
+		f.WriteString(z.Zajawka.filtrObrazu(z, weZ, "[vg]", "[v]"))
+		g, et := z.Zajawka.filtrDzwieku(weZ)
+		f.WriteString(g)
+		etykietyA = append(et, etykietyA...)
+		czas += z.Zajawka.Calosc()
 	}
 	f.WriteString(fa.String())
 
@@ -201,7 +234,15 @@ func zbudujFiltr(z *Zlecenie) (string, []string, float64) {
 		fmt.Fprintf(&f, "[%d:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,atrim=0:%s,volume=%s,afade=t=out:st=%s:d=%s[m0];\n",
 			wm, liczba(czas), liczba(poziomMuzyki), liczba(math.Max(0, czas-wycisz)), liczba(wycisz))
 		f.WriteString("[m0][g2]sidechaincompress=threshold=0.06:ratio=2.5:attack=30:release=450[m1];\n")
-		f.WriteString("[g1][m1]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.89:level=0[a]\n")
+		if z.Zajawka != nil {
+			f.WriteString(z.Zajawka.filtrBlysku("[zjs]"))
+			f.WriteString("[g1][m1][zjs]amix=inputs=3:normalize=0:duration=first,alimiter=limit=0.89:level=0[a]\n")
+		} else {
+			f.WriteString("[g1][m1]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.89:level=0[a]\n")
+		}
+	} else if z.Zajawka != nil {
+		f.WriteString(z.Zajawka.filtrBlysku("[zjs]"))
+		fmt.Fprintf(&f, "[g0]%s[g1];\n[g1][zjs]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.89:level=0[a]\n", glos)
 	} else {
 		fmt.Fprintf(&f, "[g0]%s,alimiter=limit=0.89:level=0[a]\n", glos)
 	}
@@ -235,6 +276,9 @@ func renderuj(n *Narzedzia, enk Enkoder, z *Zlecenie, postep func(float64)) erro
 	}
 	for _, p := range z.Przebitki {
 		arg = append(arg, "-i", p.Plik)
+	}
+	if zj := z.Zajawka; zj != nil { // ten sam fragment nagrania drugi raz: dekodowane są tylko te sekundy
+		arg = append(arg, "-ss", liczba(zj.Od), "-t", liczba(zj.Czas+0.5), "-i", z.Klipy[zj.Klip].Plik)
 	}
 	arg = append(arg, "-/filter_complex", "filtr.txt", "-map", "[v]", "-map", "[a]", "-r", fmt.Sprint(z.Styl.Klatki))
 	arg = append(arg, enk.Arg...)

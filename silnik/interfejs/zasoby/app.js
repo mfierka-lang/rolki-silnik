@@ -86,6 +86,7 @@
       if (wersjaSilnika && wersjaSilnika !== s.wersja) synchroWyslane = false;
       wersjaSilnika = s.wersja;
       document.body.classList.toggle("bez-jakosci", starsza(s.wersja, "0.6.6"));
+      document.body.classList.toggle("bez-zajawki", !s.zajawka); // starszy silnik nie zna zajawki
       synchronizuj();
       // panel zapisuje przy koncie, na jakim komputerze działa silnik (pomoc techniczna); raz na otwarcie strony
       if (NA_STRONIE && s.sprzet && !sprzetWyslany) {
@@ -324,7 +325,7 @@
     var jakosc = document.body.classList.contains("bez-jakosci") ? "" : wybrane("jakosc");
     try { localStorage.setItem("zm-jakosc", jakosc || "hd"); } catch (e) {}
     montuj({ pliki: pliki.map(function (p) { return p.id; }), opis: $("opis").value.trim(), format: wybrane("format"), dlugosc: wybrane("dlugosc"), jakosc: jakosc,
-      napisy: $("opcja-napisy").checked, przejscia: $("opcja-przejscia").checked, animacje: $("opcja-animacje").checked, muzyka: $("opcja-muzyka").value });
+      napisy: $("opcja-napisy").checked, przejscia: $("opcja-przejscia").checked, animacje: $("opcja-animacje").checked, zajawka: !document.body.classList.contains("bez-zajawki") && $("opcja-zajawka").checked, muzyka: $("opcja-muzyka").value });
   });
   // jakość: ostatni wybór zostaje na następny film; przy 2K i 4K podpowiedź, kiedy to ma sens
   function uwagaJakosci() { var e = document.querySelector('input[name="jakosc"]:checked'); $("jakosc-uwaga").hidden = !e || e.value === "hd"; }

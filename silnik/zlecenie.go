@@ -40,6 +40,7 @@ type Zadanie struct {
 	Ziarno        string  `json:"ziarno,omitempty"`        // ziarno wyboru utworu: poprawka filmu zostaje przy tym samym utworze
 	BezUtworu     string  `json:"bezUtworu,omitempty"`     // tytuł utworu, którego nie brać („inna muzyka”)
 	Wzor          string  `json:"wzor,omitempty"`          // katalog poprzedniej wersji, gdy to ten sam film w innej jakości
+	Zajawka       bool    `json:"zajawka,omitempty"`       // film mówiony zaczyna się od najmocniejszego zdania (przełącznik „Zajawka na początku”)
 }
 
 type Wynik struct {
@@ -80,6 +81,7 @@ type Ustawienia struct {
 	Kierunek      int    // ostatnia poprawka: -1 = krócej, 1 = dłużej (liczone od długości poprzedniego filmu)
 	Jakosc        string // "hd", "2k" albo "4k", gdy opis lub uwaga mówi o jakości
 	InnaMuzyka    bool   // ostatnia poprawka prosi o inny utwór
+	Zajawka       int    // 1 = opis albo uwaga prosi o zajawkę, -1 = „bez zajawki”, 0 = nic nie mówi (decyduje przełącznik)
 	Notatki       []string
 }
 
@@ -182,6 +184,14 @@ func zrozumUwagi(opis string, popraw []string) Ustawienia {
 		if ma(" bez muzyki", " wylacz muzyke", " usun muzyke", " bez podkladu") {
 			u.BezMuzyki = true
 			u.Notatki = append(u.Notatki, "Bez muzyki.")
+		}
+		switch { // „bez zajawki” przed „zajawka” (zawiera to samo słowo); ostatnia wzmianka wygrywa
+		case ma(" bez zajawk", " bez teasera", " usun zajawk", " wylacz zajawk"):
+			u.Zajawka = -1
+			u.Notatki = append(u.Notatki, "Bez zajawki.")
+		case ma(" zajawk", " teaser"):
+			u.Zajawka = 1
+			u.Notatki = append(u.Notatki, "Zajawka na początku filmu.")
 		}
 		if ma(" bez naglowka", " usun naglowek", " bez tytulu", " usun tytul") {
 			u.BezNaglowka = true
@@ -502,6 +512,13 @@ func polecenieWykonaj(arg []string) {
 		}
 		ust.DlugoscPodana = true
 	}
+	// zajawka: opis albo uwaga z „Popraw” ma pierwszeństwo przed przełącznikiem
+	switch ust.Zajawka {
+	case 1:
+		z.Zajawka = true
+	case -1:
+		z.Zajawka = false
+	}
 	if ust.DlugoscPodana && ust.Dlugosc > 60 {
 		z.Dlugosc = "dlugi"
 	}
@@ -799,6 +816,9 @@ func polecenieWykonaj(arg []string) {
 				a = append(a, "--przebitki", lista)
 			}
 		}
+		if z.Zajawka {
+			a = append(a, "--zajawka")
+		}
 		if wzor == nil {
 			if hak == "" && !ust.BezNaglowka && !ust.BezNapisow {
 				a = append(a, "--naglowek-auto", "--opis", z.Opis)
@@ -881,6 +901,9 @@ func polecenieWykonaj(arg []string) {
 		}
 		w.Czas, w.Hasla = u.Czas, u.Hasla
 		w.Raport = append(w.Raport, fmt.Sprintf("Wybrane ujęcia: %d z %d nagrań.", len(u.Ujecia), u.Nagran))
+		if z.Zajawka {
+			w.Raport = append(w.Raport, "Zajawka działa tylko w filmie mówionym: ten film jest z samych ujęć, więc zaczyna się zwykle.")
+		}
 		if (ust.DlugoscPodana || dlugi) && u.Czas < 0.8*ust.Dlugosc {
 			w.Raport = append(w.Raport, fmt.Sprintf("Film ma %.0f s zamiast ok. %.0f s: z tych nagrań nie da się wybrać więcej różnych, dobrych ujęć (ujęć nie powtarzam). Więcej nagrań da dłuższy film.", u.Czas, ust.Dlugosc))
 		}

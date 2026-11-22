@@ -175,6 +175,7 @@ details.blok[open] summary::before{content:"- "}
 #brak-podpowiedz{margin-top:18px}
 /* jakość pliku: HD / 2K / 4K */
 .bez-jakosci .tylko-jakosc{display:none!important}
+.bez-zajawki .tylko-zajawka{display:none!important}
 #jakosc-uwaga{margin:14px 0 0;max-width:70ch}
 .rzad-jakosc{margin-top:0;gap:8px}
 .btn-maly{min-height:40px;padding:0 18px;font-size:14px}
